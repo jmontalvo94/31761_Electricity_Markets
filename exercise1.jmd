@@ -1,0 +1,55 @@
+---
+title: Exercise session 1: Day-ahead electricity markets - Basics
+author: Jorge Montalvo
+date: 10 February 2020
+---
+
+#Problem 1
+
+1.1 What is the common name of the day-ahead market in Nord Pool?
+Elspot
+
+1.2 How many participants are they in the day-ahead market? And how many power producers in the whole area covered by the Nord Pool? Can you explain why all power producers do not trade through the Nord Pool, and how they then proceed? [Link](https://www.nordpoolgroup.com/the-power-market/The-market-members/)
+360 members and 370 power producers.
+They don't trade through Nord Pool because they do bilateral contracts or through brokers.
+
+1.3 What is the overall volume (on average) of energy generated over the Nordic and Baltic countries?
+-
+
+1.4 What was the average systems price in the Nordic area in 2018?
+43.99 €/MWh
+
+1.5 What was the overall amount of energy exchanged through the Nord Pool (Nordic and Baltic) day-ahead market in 2018? What about the UK?
+396 TWh in the Nordic and Baltic day-ahead market and 120 TWh in the UK.
+
+1.6 What are the various types of power production technologies in the Nordic and Baltic countries? Rank them in terms of marginal production costs (in increasing order). What are the most important ones?
+  1. Solar
+  2. Wind
+  3. Hydro
+  4. Nuclear
+  5. Biomass/CHP
+  6. Thermal (CCGT, Coal, and Oil)
+
+1.7 Who are the various participants in the day-ahead market? What is their role?
+* Generator
+* Trader/Broker
+* Large Consumers
+* Retailers
+
+1.8 Who owns Nord Pool? (see webpage \About us")
+Nord Pool is owned by Euronext (66%) and the Nordic Transmission System Operators and Litgrid (Lithuanian TSO) retain 34% ownership through a joint holding company.
+
+1.9 What is the market time unit (i.e, a few minutes, a whole day, or...?), and what are the bidding areas?
+For the DAM is hourly, RTM is 15-minutes, 30-minutes, and hourly bids. There are 15 bidding areas, NO1-5, DK1-2, SE1-4, FI, EE, LV, and LT.
+
+1.10 What are the assumptions for the definition of bidding areas?
+
+
+#Problem 2
+
+
+```julia
+using Plots
+
+
+```
