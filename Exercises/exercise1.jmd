@@ -1,8 +1,15 @@
 ---
-title: Exercise session 1 - Day-ahead electricity markets (Basics)
+title: Day-ahead electricity markets
+subtitle: 31761 - Renewables in Electricity Markets
 author: Jorge Montalvo Arvizu
 date: 10 February 2020
 ---
+
+```julia; results="hidden"
+using DataFrames
+using Plots
+gr()
+```
 
 ## Problem 1: General description of a day-ahead market and the example of the Nord Pool
 
@@ -73,7 +80,7 @@ Ordered by increasing marginal cost or bids.
 |BlueWater |G5| 70| 10|
 
 
-```julia
+```julia; results="hidden"
 supplier=["FlexiGas","Nuke22","ShinyPower","RoskildeCHP","BlueWater","Zero"]
 id=["G₁","G₂","G₃","G₄","G₅", "Z"]
 quantity=[15,100,32,25,70,0]
@@ -84,22 +91,25 @@ sort!(bidsSupplier,[:Price, :Quantity])
 
 aggregatedQ=zeros(Int64, 6)
 
-for p in bidsSupplier.Quantity
-    
+for i=1:size(bidsSupplier.Quantity,1)
     if i==1
+        aggregatedQ[i]=bidsSupplier.Quantity[i]
     else
-    aggregatedQ[i]=aggregatedQ[i-1]+p
+    aggregatedQ[i]=aggregatedQ[i-1]+bidsSupplier.Quantity[i]
     end
     i=i+1
 end
 
 insertcols!(bidsSupplier,4,AggregatedQ=aggregatedQ)
+```
+
+```julia
 plot(bidsSupplier.AggregatedQ,bidsSupplier.Price,w=2,t=:steppre, xlim=(0,sum(bidsSupplier.Quantity)), xlab="Quantity [MWh]", ylab="Price [EUR/MWh]", color="darkred", legend=false)
 ```
 
 **2.4 What is the total amount of energy offered through the market?**
 
-```julia
+```julia; echo=false
 maximum(aggregatedQ)
 ```
 
@@ -129,7 +139,7 @@ It's sorted from the highest priced offer to the lowest.
 |IntelliWatt| D6| 16| 32|
 |El-Forbundet| D7| 57| 50|
 
-```julia
+```julia; results="hidden"
 consumer=["WeLovePower","CleanCharge","JyskeEl","ElRetail","QualiWatt","IntelliWatt", "El-Forbundet","Zero"]
 id=["D₁","D₂","D₃","D₄","D₅","D₆","D₇","Z"]
 quantity=[35,23,12,38,43,16,57,0]
@@ -140,22 +150,25 @@ sort!(bidsConsumer,[:Price, :Quantity],rev=true)
 
 aggregatedQ=zeros(size(consumer))
 
-i=1
-for p in bidsConsumer.Quantity
+for i=1:size(bidsConsumer.Quantity,1)
     if i==1
+        aggregatedQ[i]=bidsConsumer.Quantity[i]
     else
-    aggregatedQ[i]=aggregatedQ[i-1]+p
+    aggregatedQ[i]=aggregatedQ[i-1]+bidsConsumer.Quantity[i]
     end
     i=i+1
 end
 
 insertcols!(bidsConsumer,4,AggregatedQ=aggregatedQ)
+```
+
+```julia
 plot(bidsConsumer.AggregatedQ,bidsConsumer.Price,w=2,t=:steppre, xlim=(0,sum(bidsConsumer.Quantity)), xlab="Quantity [MWh]", ylab="Price [EUR/MWh]", color="darkblue", legend=false)
 ```
 
 **3.4 What is the total amount of energy asked for through the market? Compare it to the total amount of energy supply offers. Is there a problem there?**
 
-```julia
+```julia; echo=false
 maximum(aggregatedQ)
 ```
 
