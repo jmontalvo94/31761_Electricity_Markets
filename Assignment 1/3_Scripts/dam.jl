@@ -23,7 +23,6 @@ df_consumption2020 = readandclean(files[2])
 df_wind2019 = readandclean(files[3])
 df_wind2020 = readandclean(files[4])
 #check for missing values
-
 #=Data to arrays?
 array_b = Array(df_b)
 b = zeros(Int,length(M),length(F),length(T),length(S))
@@ -34,7 +33,23 @@ end
 
 consumer = ["WeLovePower","CleanCharge","JyskeEl","ElRetail","QualiWatt","IntelliWatt", "El-Forbundet"]
 id_D = ["D₁","D₂","D₃","D₄","D₅","D₆","D₇"]
-en_import = 100
+en_NO = repeat([-100],24)
+en_GE=zeros(24)
+for i=1:24
+    if (i<9 || i>15)
+        en_GE[i] = 0
+    else
+        en_GE[i] = 120
+end
+end
+en_SWE=zeros(24)
+for i=1:24
+    if (i<11 || i>17)
+        en_SWE[i] = 0
+    else
+        en_SWE[i] = -80
+end
+end
 # Initialize vectors
 N_D = size(consumer,1)
 n_D = collect(1:N_D)
@@ -45,7 +60,7 @@ c = vcat(λ_G,-λ_D)
 A_eq = transpose(vcat(ones(N_G),-ones(N_D)))
 A = Array(Diagonal(ones(N_G+N_D)))
 b = vcat(P_G,P_D)
-b_eq = 0
+trans_limit = 600
 
 # Model
 model_supplydemand = Model(with_optimizer(Gurobi.Optimizer))
