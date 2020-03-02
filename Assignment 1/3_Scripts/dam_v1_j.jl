@@ -9,22 +9,42 @@ using CSV
 using Dates
 gr()
 
-# Create functions
+## Create functions
 
 function readandclean(file)
+    df = CSV.read(file,header=3,datarow=4)
+    df = rename!(df,:1=>"Date")
     if file[1:11]=="consumption"
-        df = CSV.read(file,header=3,datarow=4)
-        df = rename!(df,:1=>"Date")
         df = select!(df, Not([:NO,:SE,:FI,:EE,:LV,:LT]))
-    else
-        df = CSV.read(file,header=3,datarow=4)
-        df = rename!(df,:1=>"Date")
     end
     return df
 end
 
-function adjustconsumption(df)
+function adjust_dateandtime(df)
+	i=1
+	j=1
+	newDate=fill(Date("2010-01-01"),size(df,1))
+	newHour=fill(0,size(df.Hours,1))
+    for oldDate in df.Date
+		try
+			newDate[i] = Date(oldDate,"dd/mm/yyyy")
+		catch
+			newDate[i] = Date(oldDate, "dd-mm-yyyy")
+		end
+		i+=1
+	end
+	for oldHour in df.Hours
+		newHour[j] = parse(Int64,oldHour[1:2]) + 1
+		j+=1
+	end
+	select!(df, Not(:Date))
+	select!(df, Not(:Hours))
+	insertcols!(df,1,:Date=>newDate)
+	insertcols!(df,2,:Hour=>newHour)
+end
 
+function adjust_consumption(df)
+    insertcols!(df,5,:DK1_Import=>imp_DK1_NO)
 end
 
 function addwind(df)
@@ -34,8 +54,16 @@ function addwind(df)
     insertcols!(df,7,:EastWind₂=>df.DK2.*0.9)
 end
 
-#Read data
+## Code
+
+#Read data and initialize variables
 files=["consumption-prognosis_2019_hourly.csv","consumption-prognosis_2020_hourly.csv","wind-power-dk-prognosis_2019_hourly.csv","wind-power-dk-prognosis_2020_hourly.csv"]
+# Transmission capacity between DK1 and DK2
+t_capacity = 600 # [MW]
+# Imports and Exports
+imp_DK1_NO = 100 # [MW]
+imp_DK2_SE = 80 # [MW] from 11am to 5pm only
+exp_DK1_DE = 120 # [MW] from 8am to 3pm only
 
 #Clean files
 df_consumption2019 = readandclean(files[1])
@@ -43,18 +71,21 @@ df_consumption2020 = readandclean(files[2])
 df_wind2019 = readandclean(files[3])
 df_wind2020 = readandclean(files[4])
 
+#Adjust date
+adjust_dateandtime(df_consumption2019)
+adjust_dateandtime(df_consumption2020)
+adjust_dateandtime(df_wind2019)
+adjust_dateandtime(df_wind2020)
+
+#Adjust consumption
+adjust_consumption(df_consumption2019)
+
 #append!(df1,df2) to append two dataframes
 
 #Adjust wind and create offers
 addwind(df_wind2020)
 
-# Transmission capacity between DK1 and DK2
-t_capacity = 600 # [MW]
 
-# Imports and Exports
-imp_DK1_NO = 100 # [MW]
-imp_DK2_SE = 80 # [MW] from 11am to 5pm only
-exp_DK1_DE = 120 # [MW] from 8am to 3pm only
 
 #=Data to arrays?
 array_b = Array(df_b)
