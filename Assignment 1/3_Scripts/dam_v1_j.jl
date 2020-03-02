@@ -1,3 +1,5 @@
+## Import packages
+
 using DataFrames
 using Plots
 using JuMP
@@ -11,79 +13,106 @@ gr()
 
 ## Create functions
 
-function readandclean(file)
+function read_file(file)
     df = CSV.read(file,header=3,datarow=4)
-    df = rename!(df,:1=>"Date")
-    if file[1:11]=="consumption"
+    df = rename!(df,:1 => "Date")
+    if file[1:11] == "consumption"
         df = select!(df, Not([:NO,:SE,:FI,:EE,:LV,:LT]))
     end
     return df
 end
 
-function adjust_dateandtime(df)
-	i=1
-	j=1
-	newDate=fill(Date("2010-01-01"),size(df,1))
-	newHour=fill(0,size(df.Hours,1))
+function adjust_date!(df)
+	i = 1
+	newDate = fill(Date("2010-01-01"),size(df,1))
     for oldDate in df.Date
 		try
 			newDate[i] = Date(oldDate,"dd/mm/yyyy")
 		catch
 			newDate[i] = Date(oldDate, "dd-mm-yyyy")
 		end
-		i+=1
+		i += 1
 	end
+	select!(df, Not(:Date)) # Remove old date
+	insertcols!(df,1,:Date => newDate) # Insert new date
+end
+
+function adjust_hours!(df)
+	i = 1
+	newHour = fill(0,size(df.Hours,1))
 	for oldHour in df.Hours
 		newHour[j] = parse(Int64,oldHour[1:2]) + 1
-		j+=1
+		j += 1
 	end
-	select!(df, Not(:Date))
-	select!(df, Not(:Hours))
-	insertcols!(df,1,:Date=>newDate)
-	insertcols!(df,2,:Hour=>newHour)
+	select!(df, Not(:Hours)) # Remove old hour
+	insertcols!(df,2,:Hour => newHour) # Insert new hour
 end
 
-function adjust_consumption(df)
-    insertcols!(df,5,:DK1_Import=>imp_DK1_NO)
+function adjust_consumption!(df,impexp)
+	dk1_exp = zeros(size(df,1))
+	dk2_imp = zeros(size(df,1))
+	i = 1
+	for hour in df.Hours
+		if hour > 8 & hour < 4
+			dk1_exp[i] = impexp[2]
+		elseif hour > 10 & hour < 6
+			df2_imp[i] = impexp[3]
+		end
+		i += 1
+	end
+	insertcols!(df,5,:DK1_Import => fill(impexp[1],size(df.DK1,1)))
+	insertcols!(df,6,:DK1_Export => dk1_exp)
+	insertcols!(df,7,:DK2_Import => dk2_imp)
 end
 
-function addwind(df)
+function add_wind!(df)
     insertcols!(df,5,:WestWind₁=>df.DK1.*0.8)
     insertcols!(df,6,:WestWind₂=>df.DK1.*0.2)
     insertcols!(df,7,:EastWind₁=>df.DK2.*0.1)
-    insertcols!(df,7,:EastWind₂=>df.DK2.*0.9)
+    insertcols!(df,8,:EastWind₂=>df.DK2.*0.9)
 end
 
 ## Code
 
-#Read data and initialize variables
+# Set file names
 files=["consumption-prognosis_2019_hourly.csv","consumption-prognosis_2020_hourly.csv","wind-power-dk-prognosis_2019_hourly.csv","wind-power-dk-prognosis_2020_hourly.csv"]
+
 # Transmission capacity between DK1 and DK2
 t_capacity = 600 # [MW]
 # Imports and Exports
 imp_DK1_NO = 100 # [MW]
-imp_DK2_SE = 80 # [MW] from 11am to 5pm only
 exp_DK1_DE = 120 # [MW] from 8am to 3pm only
+imp_DK2_SE = 80 # [MW] from 11am to 5pm only
+impexp = [imp_DK1_NO, exp_DK1_DE, imp_DK2_SE]
 
-#Clean files
-df_consumption2019 = readandclean(files[1])
-df_consumption2020 = readandclean(files[2])
-df_wind2019 = readandclean(files[3])
-df_wind2020 = readandclean(files[4])
+# Read files
+df_consumption2019 = read_file(files[1])
+df_consumption2020 = read_file(files[2])
+df_wind2019 = read_file(files[3])
+df_wind2020 = read_file(files[4])
 
-#Adjust date
-adjust_dateandtime(df_consumption2019)
-adjust_dateandtime(df_consumption2020)
-adjust_dateandtime(df_wind2019)
-adjust_dateandtime(df_wind2020)
+# Adjust date
+adjust_date!(df_consumption2019)
+adjust_date!(df_consumption2020)
+adjust_date!(df_wind2019)
+adjust_date!(df_wind2020)
+
+#remove_months!(df_consumption2019)
+
+# Adjust hours
+adjust_hours!(df_consumption2019)
+adjust_hours!(df_consumption2020)
+adjust_hours!(df_wind2019)
+adjust_hours!(df_wind2020)
 
 #Adjust consumption
-adjust_consumption(df_consumption2019)
+adjust_consumption!(df_consumption2019,impexp)
+adjust_consumption!(df_consumption2020,impexp)
 
 #append!(df1,df2) to append two dataframes
 
 #Adjust wind and create offers
-addwind(df_wind2020)
+add_wind!(df_wind2020)
 
 
 
