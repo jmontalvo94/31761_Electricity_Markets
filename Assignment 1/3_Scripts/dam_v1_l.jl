@@ -23,7 +23,6 @@ df_consumption2020 = readandclean(files[2])
 df_wind2019 = readandclean(files[3])
 df_wind2020 = readandclean(files[4])
 #check for missing values
-
 #=Data to arrays?
 array_b = Array(df_b)
 b = zeros(Int,length(M),length(F),length(T),length(S))
@@ -32,31 +31,54 @@ for i=1:size(array_b,1)
 end
 =#
 
-consumer = ["WeLovePower","CleanCharge","JyskeEl","ElRetail","QualiWatt","IntelliWatt", "El-Forbundet"]
-id_D = ["D₁","D₂","D₃","D₄","D₅","D₆","D₇"]
-
+supplier_DK1 = ["FlexiGas","FlexiGas","FlexiGas","Peako","Peako","Nuke22","CoalAtLast"]
+id_GDK1 = ["G₁","G₂","G₃","G₄","G₅","G₆","G₇"]
+supplier_DK2 = ["Nuke22","RoskildeCHP","RoskildeCHP","Avedøvre","Avedøvre","BlueWater","BlueWater","CoalAtLast"]
+id_GDK2 = ["G₈","G₉","G₁₀","G₁₁","G₁₂","G₁₃","G₁₄","G₁₅"]
+#creating imports and exports
+en_NO = repeat([-100],24)
+en_GE=zeros(24)
+for i=1:24
+    if (i<9 || i>15)
+        en_GE[i] = 0
+    else
+        en_GE[i] = 120
+end
+end
+en_SWE=zeros(24)
+for i=1:24
+    if (i<11 || i>17)
+        en_SWE[i] = 0
+    else
+        en_SWE[i] = -80
+end
+end
 # Initialize vectors
-N_D = size(consumer,1)
-n_D = collect(1:N_D)
-n = collect(1:(N_G+N_D))
-P_D  = [35,23,12,38,43,16,57]
-λ_D = [65,78,10,46,63,32,50]
-c = vcat(λ_G,-λ_D)
-A_eq = transpose(vcat(ones(N_G),-ones(N_D)))
-A = Array(Diagonal(ones(N_G+N_D)))
-b = vcat(P_G,P_D)
-b_eq = 0
+#N_D = size(consumer,1)
+#n_D = collect(1:N_D)
+#n = collect(1:(N_G+N_D))
+PG_DK1  = [380,350,320,370,480,900,1200]
+λG_DK1 = [72,62,150,80,87,24,260]
+PG_DK2  = [1100,300,380,360,320,750,600,860]
+λG_DK2 = [17,44,40,37,32,5,12,235]
+#c = vcat(λ_G,-λ_D)
+#A_eq = transpose(vcat(ones(N_G),-ones(N_D)))
+#A = Array(Diagonal(ones(N_G+N_D)))
+#b = vcat(P_G,P_D)
+trans_limit = 600
 
 # Model
-model_supplydemand = Model(with_optimizer(Gurobi.Optimizer))
-@variable(model_supplydemand, y[j in n] >= 0)
-@objective(model_supplydemand, Min, transpose(c)*y)
-@constraint(model_supplydemand, generation, A*y .<= b)
-@constraint(model_supplydemand, balance, A_eq*y == b_eq)
-optimize!(model_supplydemand)
+ass1 = Model(with_optimizer(Gurobi.Optimizer))
+@variable(ass1, y[j in n] >= 0)
+@objective(ass1, Min, transpose(c)*y)
+@constraint(ass1, generationDK1, A*y .<= b)
+@constraint(ass1, generationDK2, A*y .<= b)
+@constraint(ass1, balanceDK1[t], A_eq*y + en_GE[t] + en_NO[t] == trans_limit)
+@constraint(ass1, balanceDK2[t], A_eq*y + en_SWE[t] == -trans_limit)
+optimize!(ass1)
 
 # Model output
-if termination_status(model_supplydemand) == MOI.OPTIMAL
+if termination_status(ass1) == MOI.OPTIMAL
     println("Optimal solution found!\n")
     println("Generation and Demand:\n")
     for j in n_G
@@ -65,7 +87,7 @@ if termination_status(model_supplydemand) == MOI.OPTIMAL
     for i in n_D
         println("$(id_D[i]): ", value.(y[i]), " MWh")
     end
-    println("\nObjective value: ", objective_value(model_supplydemand), " €")
+    println("\nObjective value: ", objective_value(ass1), " €")
     println("\nMarket equilibrium: ", dual(balance), " €/MWh")
     else
         error("No solution.")
