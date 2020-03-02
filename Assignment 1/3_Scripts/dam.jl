@@ -34,7 +34,7 @@ end
 
 consumer = ["WeLovePower","CleanCharge","JyskeEl","ElRetail","QualiWatt","IntelliWatt", "El-Forbundet"]
 id_D = ["D₁","D₂","D₃","D₄","D₅","D₆","D₇"]
-
+en_import = 100
 # Initialize vectors
 N_D = size(consumer,1)
 n_D = collect(1:N_D)
