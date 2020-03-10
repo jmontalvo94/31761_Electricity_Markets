@@ -95,7 +95,7 @@ trans_limit = 600
 ass1 = Model(with_optimizer(Gurobi.Optimizer))
 @variable(ass1, y_DK1[j in n_DK1] >= 0)
 @variable(ass1, y_DK2[j in n_DK2] >= 0)
-@objective(ass1, Min, transpose(c)*y)
+@objective(ass1, Min, transpose(c_DK1)*y_DK1 + transpose(c_DK2)*y_DK2)
 @constraint(ass1, generationDK1, A_DK1*y_DK1 .<= b_DK1)
 @constraint(ass1, generationDK2, A_DK2*y_DK2 .<= b_DK2)
 @constraint(ass1, balanceDK1[t], A_eq_DK1 *y_DK1 + en_GE[t] + en_NO[t] == trans_limit)
