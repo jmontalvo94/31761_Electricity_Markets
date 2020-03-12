@@ -145,10 +145,10 @@ end
 ## Model
 
 # Suppliers per BZ
-supplier_DK1 = ["FlexiGas","FlexiGas","FlexiGas","Peako","Peako","Nuke22","CoalAtLast"]
-id_GDK1 = ["G₁","G₂","G₃","G₄","G₅","G₆","G₇"]
-supplier_DK2 = ["Nuke22","RoskildeCHP","RoskildeCHP","Avedøvre","Avedøvre","BlueWater","BlueWater","CoalAtLast"]
-id_GDK2 = ["G₈","G₉","G₁₀","G₁₁","G₁₂","G₁₃","G₁₄","G₁₅"]
+supplier_DK1 = ["FlexiGas","FlexiGas","FlexiGas","Peako","Peako","Nuke22","CoalAtLast", "WestWind₁", "WestWind₂"]
+id_DK1 = ["G₁","G₂","G₃","G₄","G₅","G₆","G₇", "WW₁", "WW₂", "DK1"]
+supplier_DK2 = ["Nuke22","RoskildeCHP","RoskildeCHP","Avedøvre","Avedøvre","BlueWater","BlueWater","CoalAtLast", "EastWind₂"]
+id_DK2 = ["G₈","G₉","G₁₀","G₁₁","G₁₂","G₁₃","G₁₄","G₁₅", "EW₂", "DK2"]
 
 # Transmission capacity between DK1 and DK2
 t_capacity = 600 # [MW]
@@ -156,75 +156,79 @@ t_capacity = 600 # [MW]
 # Time periods
 T = collect(1:size(df,1))
 
-#creating imports and exports
-en_NO = repeat([-100],24)
-en_GE=zeros(24)
-for i=1:24
-    if (i<9 || i>15)
-        en_GE[i] = 0
-    else
-        en_GE[i] = 120
-end
-end
-en_SWE=zeros(24)
-for i=1:24
-    if (i<11 || i>17)
-        en_SWE[i] = 0
-    else
-        en_SWE[i] = -80
-end
-end
-
-# Initialize vectors
-N_DK1 = size(supplier_DK1,1)
+# Initialize counting vectors
+N_G_DK1 = size(supplier_DK1,1)
+n_G_DK1 = collect(1:N_G_DK1)
+N_G_DK2 = size(supplier_DK2,1)
+n_G_DK2 = collect(1:N_G_DK2)
+N_DK1 = N_G_DK1+1
+N_DK2 = N_G_DK2+1
 n_DK1 = collect(1:N_DK1)
-N_DK2 = size(supplier_DK2,1)
 n_DK2 = collect(1:N_DK2)
-#n = collect(1:(N_G+N_D))
-PG_DK1  = [380,350,320,370,480,900,1200]
-λG_DK1 = [72,62,150,80,87,24,260]
-PG_DK2  = [1100,300,380,360,320,750,600,860]
-λG_DK2 = [17,44,40,37,32,5,12,235]
-c_DK1 = vcat(λG_DK1)
-c_DK1 = vcat(λG_DK2)
-A_eq_DK1 = transpose(vcat(-ones(N_DK1)))
-A_eq_DK2 = transpose(vcat(-ones(N_DK2)))
+# Maximum capacities and bid prices
+P_G_DK1  = [380.0,350.0,320.0,370.0,480.0,900.0,1200.0, 0.0, 0.0]
+λ_G_DK1 = [72,62,150,80,87,24,260,0,-17]
+P_G_DK2  = [1100.0,300.0,380.0,360.0,320.0,750.0,600.0,860.0, 0.0]
+λ_G_DK2 = [17,44,40,37,32,5,12,235,-12]
+c_DK1 = vcat(λ_G_DK1, 0) # Generators plus demand at zero price
+c_DK2 = vcat(λ_G_DK2, 0) # Generators plus demand at zero price
+# Helping matrices
+A_eq_DK1 = transpose(vcat(ones(N_G_DK1),-1))
+A_eq_DK2 = transpose(vcat(ones(N_G_DK2),-1))
 A_DK1 = Array(Diagonal(ones(N_DK1)))
+A_DK1[]
 A_DK2 = Array(Diagonal(ones(N_DK2)))
-b_DK1 = vcat(PG_DK1)
-b_DK2 = vcat(PG_DK2)
 
-# Model
-model_fbdam = Model(with_optimizer(Gurobi.Optimizer))
 
-# Variables
-@variable(model_fbdam, y_DK1[j in n_DK1] >= 0)
-@variable(model_fbdam, y_DK2[j in n_DK2] >= 0)
-@variable(model_fbdam, t_capacity >= b_eq >= -t_capacity)
+#for t in T
+	t=1
+	# Initialize wind and nuclear production (between 5am and 10pm only)
+	if (t > 5 && t < 23)
+		P_G_DK1[6] = 900
+		P_G_DK2[1] = 1100
+	else
+		P_G_DK1[6] = 0
+		P_G_DK2[1] = 0
+	end
+	P_G_DK1[8] = df.WestWind₁[t]
+	P_G_DK1[9] = df.WestWind₂[t]
+	P_G_DK2[9] = df.EastWind₂[t]
+	b_DK1 = vcat(P_G_DK1, 0.0)
+	b_DK2 = vcat(P_G_DK2, 0.0)
+	b_DK1[10] = df.DK1[t] + df.DK1_Import[t] + df.DK1_Export[t] - df.EastWind₁[t]
+	b_DK2[10] = df.DK2[t] + df.DK2_Import[t]
 
-# Objective function
-@objective(model_fbdam, Min, transpose(c_DK1)*y_DK1 + transpose(c_DK2)*y_DK2)
+	# Model
+	model_fbdam = Model(with_optimizer(Gurobi.Optimizer))
 
-# Maximum capacity
-@constraint(model_fbdam, generationDK1, A_DK1*y_DK1 .<= b_DK1)
-@constraint(model_fbdam, generationDK2, A_DK2*y_DK2 .<= b_DK2)
-# Balance equation
-@constraint(model_fbdam, balanceDK1[t], A_eq_DK1 *y_DK1 + en_GE[t] + en_NO[t] == b_eq)
-@constraint(model_fbdam, balanceDK2[t], A_eq_DK2 *y_DK2 + en_SWE[t] == -b_eq)
-@constraint(model_fbdam, transmission, )
+	# Variables
+	@variable(model_fbdam, y_DK1[j in n_DK1] >= 0)
+	@variable(model_fbdam, y_DK2[j in n_DK2] >= 0)
+	@variable(model_fbdam, t_capacity >= b_eq >= -t_capacity)
 
-# Solve
-optimize!(model_fbdam)
+	# Objective function
+	@objective(model_fbdam, Min, transpose(c_DK1)*y_DK1 + transpose(c_DK2)*y_DK2)
+
+	# Maximum capacity
+	@constraint(model_fbdam, maxcapacity_DK1, A_DK1*y_DK1 .<= b_DK1)
+	@constraint(model_fbdam, maxcapacity_DK2, A_DK2*y_DK2 .<= b_DK2)
+	# Balance equation
+	@constraint(model_fbdam, balance_DK1, A_eq_DK1*y_DK1 == b_eq)
+	@constraint(model_fbdam, balance_DK2, A_eq_DK2*y_DK2 == -b_eq)
+
+	# Solve
+	optimize!(model_fbdam)
+#end
 
 # Model output
 if termination_status(model_fbdam) == MOI.OPTIMAL
     println("Optimal solution found!\n")
     println("Generation and Demand:\n")
     for j in n_DK1
-        println("$(id_G[j]): ", value.(y_DK1[j]), " MWh")
+        println("$(id_DK1[j]): ", value.(y_DK1[j]), " MWh")
     end
     for i in n_DK2
-        println("$(id_D[i]): ", value.(y_DK2[i]), " MWh")
+        println("$(id_DK2[i]): ", value.(y_DK2[i]), " MWh")
     end
     println("\nObjective value: ", objective_value(model_fbdam), " €")
     println("\nMarket equilibrium DK1: ", dual(balanceDK1), " €/MWh")
