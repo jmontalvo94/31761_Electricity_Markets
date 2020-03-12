@@ -1,6 +1,7 @@
 ## Import packages
 
 using DataFrames
+using DataFramesMeta
 using Plots
 using JuMP
 using Gurobi
@@ -22,54 +23,79 @@ function read_file(file)
     return df
 end
 
-function adjust_date!(df)
-	i = 1
-	newDate = fill(Date("2010-01-01"),size(df,1))
-    for oldDate in df.Date
-		try
-			newDate[i] = Date(oldDate,"dd/mm/yyyy")
-		catch
-			newDate[i] = Date(oldDate, "dd-mm-yyyy")
+function adjust_date!(dfs)
+	for df in dfs
+		newDate = fill(Date("1994-01-01"),size(df,1))
+	    for (i, oldDate) in enumerate(df.Date)
+			try
+				newDate[i] = Date(oldDate,"dd/mm/yyyy")
+			catch
+				newDate[i] = Date(oldDate, "dd-mm-yyyy")
+			end
 		end
-		i += 1
+		select!(df, Not(:Date)) # Remove old date
+		insertcols!(df,1,:Date => newDate) # Insert new date
+		insertcols!(df,2,:Year => year.(newDate))
+		insertcols!(df,3,:Month => month.(newDate))
+		insertcols!(df,4,:Day => day.(newDate))
 	end
-	select!(df, Not(:Date)) # Remove old date
-	insertcols!(df,1,:Date => newDate) # Insert new date
+end
+
+function remove_months_and_merge!(dfs)
+	df_merged = DataFrame()
+	for df in dfs
+		if df.Year[1] == 2019
+			df_merged = append!(df_merged, @where(df, :Year .== 2019, :Month .== 11))
+		else
+			df_merged = append!(df_merged, @where(df, :Year .== 2020, :Month .== 1))
+		end
+	end
+	dropmissing!(df_merged)
+	return df_merged
 end
 
 function adjust_hours!(df)
-	i = 1
 	newHour = fill(0,size(df.Hours,1))
-	for oldHour in df.Hours
-		newHour[j] = parse(Int64,oldHour[1:2]) + 1
-		j += 1
+	for (i, oldHour) in enumerate(df.Hours)
+		newHour[i] = parse(Int64,oldHour[1:2]) + 1
 	end
 	select!(df, Not(:Hours)) # Remove old hour
-	insertcols!(df,2,:Hour => newHour) # Insert new hour
+	insertcols!(df,5,:Hour => newHour) # Insert new hour
 end
 
-function adjust_consumption!(df,impexp)
+function adjust_consumption!(df, impexp)
+	dk1_imp = impexp[1]
 	dk1_exp = zeros(size(df,1))
 	dk2_imp = zeros(size(df,1))
-	i = 1
-	for hour in df.Hours
-		if hour > 8 & hour < 4
+	for (i, hour) in enumerate(df.Hour)
+		if (hour > 8 && hour < 16)
 			dk1_exp[i] = impexp[2]
-		elseif hour > 10 & hour < 6
-			df2_imp[i] = impexp[3]
 		end
-		i += 1
+		if (hour > 11 && hour < 19)
+				dk2_imp[i] = impexp[3]
+		end
+		#df.DK1[i] = df.DK1[i] - dk1_imp + dk1_exp[i]
+		#df.DK2[i] = df.DK2[i] - dk2_imp[i]
 	end
-	insertcols!(df,5,:DK1_Import => fill(impexp[1],size(df.DK1,1)))
-	insertcols!(df,6,:DK1_Export => dk1_exp)
-	insertcols!(df,7,:DK2_Import => dk2_imp)
+	insertcols!(df,8,:DK1_Import => fill(dk1_imp,size(df.DK1,1)))
+	insertcols!(df,9,:DK1_Export => dk1_exp)
+	insertcols!(df,10,:DK2_Import => dk2_imp)
+	return df
 end
 
 function add_wind!(df)
-    insertcols!(df,5,:WestWind₁=>df.DK1.*0.8)
-    insertcols!(df,6,:WestWind₂=>df.DK1.*0.2)
-    insertcols!(df,7,:EastWind₁=>df.DK2.*0.1)
-    insertcols!(df,8,:EastWind₂=>df.DK2.*0.9)
+    insertcols!(df,8,:WestWind₁=>df.DK1.*0.8)
+    insertcols!(df,9,:WestWind₂=>df.DK1.*0.2)
+    insertcols!(df,10,:EastWind₁=>df.DK2.*0.1)
+    insertcols!(df,11,:EastWind₂=>df.DK2.*0.9)
+end
+
+function merge_dfs!(df1, df2)
+	df = copy(df1)
+	for i=8:11
+		insertcols!(df, i+3, names(df2)[i] => df2[!,i])
+	end
+	return df
 end
 
 ## Code
@@ -85,36 +111,30 @@ exp_DK1_DE = 120 # [MW] from 8am to 3pm only
 imp_DK2_SE = 80 # [MW] from 11am to 5pm only
 impexp = [imp_DK1_NO, exp_DK1_DE, imp_DK2_SE]
 
-# Read files
-df_consumption2019 = read_file(files[1])
-df_consumption2020 = read_file(files[2])
-df_wind2019 = read_file(files[3])
-df_wind2020 = read_file(files[4])
+# Read files into separate DataFrames
+dfs_consumption = [read_file(files[1]),read_file(files[2])]
+dfs_wind = [read_file(files[3]),read_file(files[4])]
 
 # Adjust date
-adjust_date!(df_consumption2019)
-adjust_date!(df_consumption2020)
-adjust_date!(df_wind2019)
-adjust_date!(df_wind2020)
+adjust_date!(dfs_consumption)
+adjust_date!(dfs_wind)
 
-#remove_months!(df_consumption2019)
+# Remove months and merge 2019 with 2020 into merged DataFrame
+df_consumption = remove_months_and_merge!(dfs_consumption)
+df_wind = remove_months_and_merge!(dfs_wind)
 
 # Adjust hours
-adjust_hours!(df_consumption2019)
-adjust_hours!(df_consumption2020)
-adjust_hours!(df_wind2019)
-adjust_hours!(df_wind2020)
+adjust_hours!(df_consumption)
+adjust_hours!(df_wind)
 
 #Adjust consumption
-adjust_consumption!(df_consumption2019,impexp)
-adjust_consumption!(df_consumption2020,impexp)
-
-#append!(df1,df2) to append two dataframes
+adjust_consumption!(df_consumption, impexp)
 
 #Adjust wind and create offers
-add_wind!(df_wind2020)
+add_wind!(df_wind)
 
-
+#Merge DataFrames into single
+df = merge_dfs!(df_consumption, df_wind)
 
 #=Data to arrays?
 array_b = Array(df_b)
