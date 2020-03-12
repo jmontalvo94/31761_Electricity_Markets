@@ -153,6 +153,9 @@ id_GDK2 = ["G₈","G₉","G₁₀","G₁₁","G₁₂","G₁₃","G₁₄","G₁
 # Transmission capacity between DK1 and DK2
 t_capacity = 600 # [MW]
 
+# Time periods
+T = collect(1:size(df,1))
+
 #creating imports and exports
 en_NO = repeat([-100],24)
 en_GE=zeros(24)
@@ -188,23 +191,33 @@ A_eq_DK1 = transpose(vcat(-ones(N_DK1)))
 A_eq_DK2 = transpose(vcat(-ones(N_DK2)))
 A_DK1 = Array(Diagonal(ones(N_DK1)))
 A_DK2 = Array(Diagonal(ones(N_DK2)))
-b_DK1 = vcat(P_G_DK1)
-b_DK2 = vcat(P_G_DK2)
-trans_limit = 600
+b_DK1 = vcat(PG_DK1)
+b_DK2 = vcat(PG_DK2)
 
 # Model
-ass1 = Model(with_optimizer(Gurobi.Optimizer))
-@variable(ass1, y_DK1[j in n_DK1] >= 0)
-@variable(ass1, y_DK2[j in n_DK2] >= 0)
-@objective(ass1, Min, transpose(c_DK1)*y_DK1 + transpose(c_DK2)*y_DK2)
-@constraint(ass1, generationDK1, A_DK1*y_DK1 .<= b_DK1)
-@constraint(ass1, generationDK2, A_DK2*y_DK2 .<= b_DK2)
-@constraint(ass1, balanceDK1[t], A_eq_DK1 *y_DK1 + en_GE[t] + en_NO[t] == trans_limit)
-@constraint(ass1, balanceDK2[t], A_eq_DK2 *y_DK2 + en_SWE[t] == -trans_limit)
-optimize!(ass1)
+model_fbdam = Model(with_optimizer(Gurobi.Optimizer))
+
+# Variables
+@variable(model_fbdam, y_DK1[j in n_DK1] >= 0)
+@variable(model_fbdam, y_DK2[j in n_DK2] >= 0)
+@variable(model_fbdam, t_capacity >= b_eq >= -t_capacity)
+
+# Objective function
+@objective(model_fbdam, Min, transpose(c_DK1)*y_DK1 + transpose(c_DK2)*y_DK2)
+
+# Maximum capacity
+@constraint(model_fbdam, generationDK1, A_DK1*y_DK1 .<= b_DK1)
+@constraint(model_fbdam, generationDK2, A_DK2*y_DK2 .<= b_DK2)
+# Balance equation
+@constraint(model_fbdam, balanceDK1[t], A_eq_DK1 *y_DK1 + en_GE[t] + en_NO[t] == b_eq)
+@constraint(model_fbdam, balanceDK2[t], A_eq_DK2 *y_DK2 + en_SWE[t] == -b_eq)
+@constraint(model_fbdam, transmission, )
+
+# Solve
+optimize!(model_fbdam)
 
 # Model output
-if termination_status(ass1) == MOI.OPTIMAL
+if termination_status(model_fbdam) == MOI.OPTIMAL
     println("Optimal solution found!\n")
     println("Generation and Demand:\n")
     for j in n_DK1
@@ -213,7 +226,7 @@ if termination_status(ass1) == MOI.OPTIMAL
     for i in n_DK2
         println("$(id_D[i]): ", value.(y_DK2[i]), " MWh")
     end
-    println("\nObjective value: ", objective_value(ass1), " €")
+    println("\nObjective value: ", objective_value(model_fbdam), " €")
     println("\nMarket equilibrium DK1: ", dual(balanceDK1), " €/MWh")
     println("\nMarket equilibrium DK2: ", dual(balanceDK2), " €/MWh")
     else
