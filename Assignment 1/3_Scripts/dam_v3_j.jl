@@ -80,7 +80,6 @@ function adjust_consumption!(df, impexp)
 	insertcols!(df,8,:DK1_Import => fill(dk1_imp,size(df.DK1,1)))
 	insertcols!(df,9,:DK1_Export => dk1_exp)
 	insertcols!(df,10,:DK2_Import => dk2_imp)
-	return df
 end
 
 function add_wind!(df)
@@ -96,6 +95,40 @@ function merge_dfs!(df1, df2)
 		insertcols!(df, i+3, names(df2)[i] => df2[!,i])
 	end
 	return df
+end
+
+function check_status!(G_1, G_2, D_1, D_2)
+	if (G_1 >= D_1 && G_2 >= D_2)
+		status = "Stable"
+	elseif (G_1 >= D_1 && G_2 < D_2)
+		status = "Shortage in DK2"
+	elseif (G_1 < D_1 && G_2 >= D_2)
+		status = "Shortage in DK1"
+	elseif (G_1 < D_1 && G_2 < D_2)
+		status = "Shortage"
+	end
+	return status
+end
+
+function initialize_data!(hour, df, P_G_DK1, P_G_DK2)
+	# Initialize wind and nuclear production (between 5am and 10pm only)
+	if (hour > 5 && hour < 23)
+		P_G_DK1[6] = 900.0
+		P_G_DK2[1] = 1100.0
+	else
+		P_G_DK1[6] = 0.0
+		P_G_DK2[1] = 0.0
+	end
+
+	# Set wind power bid at t
+	P_G_DK1[8] = df.WestWind₁[t]
+	P_G_DK1[9] = df.WestWind₂[t]
+	P_G_DK2[9] = df.EastWind₂[t]
+
+	# Set total bids
+	b_DK1 = vcat(P_G_DK1, df.DK1[t] + df.DK1_Import[t] + df.DK1_Export[t] - df.EastWind₁[t])
+	b_DK2 = vcat(P_G_DK2, df.DK2[t] + df.DK2_Import[t])
+	return b_DK1, b_DK2
 end
 
 ## Data cleaning
@@ -133,21 +166,17 @@ add_wind!(df_wind)
 
 #Merge DataFrames into single
 df = merge_dfs!(df_consumption, df_wind)
-
-#=Data to arrays?
-array_b = Array(df_b)
-b = zeros(Int,length(M),length(F),length(T),length(S))
-for i=1:size(array_b,1)
-    b[array_b[i,1],array_b[i,2],array_b[i,3],array_b[i,4]]=array_b[i,5]
-end
-=#
+dfs_consumption = nothing
+df_consumption = nothing
+dfs_wind = nothing
+df_wind = nothing
 
 ## Model
 
 # Suppliers per BZ
 supplier_DK1 = ["FlexiGas","FlexiGas","FlexiGas","Peako","Peako","Nuke22","CoalAtLast", "WestWind₁", "WestWind₂"]
-id_DK1 = ["G₁","G₂","G₃","G₄","G₅","G₆","G₇", "WW₁", "WW₂", "DK1"]
 supplier_DK2 = ["Nuke22","RoskildeCHP","RoskildeCHP","Avedøvre","Avedøvre","BlueWater","BlueWater","CoalAtLast", "EastWind₂"]
+id_DK1 = ["G₁","G₂","G₃","G₄","G₅","G₆","G₇", "WW₁", "WW₂", "DK1"]
 id_DK2 = ["G₈","G₉","G₁₀","G₁₁","G₁₂","G₁₃","G₁₄","G₁₅", "EW₂", "DK2"]
 
 # Transmission capacity between DK1 and DK2
@@ -156,46 +185,45 @@ t_capacity = 600 # [MW]
 # Time periods
 T = collect(1:size(df,1))
 
-# Initialize counting vectors
+# Supplier vector size
 N_G_DK1 = size(supplier_DK1,1)
-n_G_DK1 = collect(1:N_G_DK1)
 N_G_DK2 = size(supplier_DK2,1)
+
+# Supplier vector counter
+n_G_DK1 = collect(1:N_G_DK1)
 n_G_DK2 = collect(1:N_G_DK2)
+
+# Total vector size
 N_DK1 = N_G_DK1+1
 N_DK2 = N_G_DK2+1
+
+# Total vector counter
 n_DK1 = collect(1:N_DK1)
 n_DK2 = collect(1:N_DK2)
-# Maximum capacities and bid prices
+
+# Maximum capacities
 P_G_DK1  = [380.0,350.0,320.0,370.0,480.0,900.0,1200.0, 0.0, 0.0]
-λ_G_DK1 = [72,62,150,80,87,24,260,0,-17]
 P_G_DK2  = [1100.0,300.0,380.0,360.0,320.0,750.0,600.0,860.0, 0.0]
+
+# Supplier bids
+λ_G_DK1 = [72,62,150,80,87,24,260,0,-17]
 λ_G_DK2 = [17,44,40,37,32,5,12,235,-12]
+
+# Total bids
 c_DK1 = vcat(λ_G_DK1, 0) # Generators plus demand at zero price
 c_DK2 = vcat(λ_G_DK2, 0) # Generators plus demand at zero price
+
 # Helping matrices
 A_eq_DK1 = transpose(vcat(ones(N_G_DK1),-1))
 A_eq_DK2 = transpose(vcat(ones(N_G_DK2),-1))
 A_DK1 = Array(Diagonal(ones(N_DK1)))
 A_DK2 = Array(Diagonal(ones(N_DK2)))
 
+for t in T
 
-#for t in T
-	t=1
-	# Initialize wind and nuclear production (between 5am and 10pm only)
-	if (t > 5 && t < 23)
-		P_G_DK1[6] = 900
-		P_G_DK2[1] = 1100
-	else
-		P_G_DK1[6] = 0
-		P_G_DK2[1] = 0
-	end
-	P_G_DK1[8] = df.WestWind₁[t]
-	P_G_DK1[9] = df.WestWind₂[t]
-	P_G_DK2[9] = df.EastWind₂[t]
-	b_DK1 = vcat(P_G_DK1, 0.0)
-	b_DK2 = vcat(P_G_DK2, 0.0)
-	b_DK1[10] = df.DK1[t] + df.DK1_Import[t] + df.DK1_Export[t] - df.EastWind₁[t]
-	b_DK2[10] = df.DK2[t] + df.DK2_Import[t]
+	b_DK1, b_DK2 = initialize_data!(df.Hour[t], df, P_G_DK1, P_G_DK2)
+
+	status = check_status!(sum(P_G_DK1), sum(P_G_DK2), b_DK1[end], b_DK2[end])
 
 	# Model
 	model_fbdam = Model(with_optimizer(Gurobi.Optimizer))
@@ -214,10 +242,24 @@ A_DK2 = Array(Diagonal(ones(N_DK2)))
 	# Balance equation
 	@constraint(model_fbdam, balance_DK1, A_eq_DK1*y_DK1 == b_eq)
 	@constraint(model_fbdam, balance_DK2, A_eq_DK2*y_DK2 == -b_eq)
+	# Load shedding
+	if status == "Stable"
+		@constraint(model_fbdam, stable_DK1, y_DK1[end] >= b_DK1[end])
+		@constraint(model_fbdam, stable_DK2, y_DK2[end] >= b_DK2[end])
+	elseif status == "Shortage in DK2"
+		@constraint(model_fbdam, stable_DK1, y_DK1[end] >= b_DK1[end])
+		@constraint(model_fbdam, shortage_DK2, y_DK2[end] >= sum(P_G_DK2))
+	elseif status == "Shortage in DK1"
+		@constraint(model_fbdam, shortage_DK1, y_DK1[end] >= sum(P_G_DK1))
+		@constraint(model_fbdam, stable_DK2, y_DK2[end] >= b_DK2[end])
+	elseif status == "Shortage"
+		@constraint(model_fbdam, shortage_DK1, y_DK1[end] >= sum(P_G_DK1))
+		@constraint(model_fbdam, shortage_DK2, y_DK2[end] >= sum(P_G_DK2))
+	end
 
 	# Solve
 	optimize!(model_fbdam)
-#end
+end
 
 # Model output
 if termination_status(model_fbdam) == MOI.OPTIMAL
