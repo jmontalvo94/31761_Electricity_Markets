@@ -12,11 +12,11 @@ using CSV
 using Dates
 gr()
 
-## Create functions
+## Define functions
 
 function read_file(file)
     df = CSV.read(file,header=3,datarow=4)
-    df = rename!(df,:1 => "Date")
+    df = rename!(df, :1 => "Date")
     if file[1:11] == "consumption"
         df = select!(df, Not([:NO,:SE,:FI,:EE,:LV,:LT]))
     end
@@ -110,9 +110,9 @@ function check_status!(G_1, G_2, D_1, D_2)
 	return status
 end
 
-function initialize_data!(hour, df, P_G_DK1, P_G_DK2)
+function initialize_data!(t, df, P_G_DK1, P_G_DK2)
 	# Initialize wind and nuclear production (between 5am and 10pm only)
-	if (hour > 5 && hour < 23)
+	if (df.Hour[t] > 5 && df.Hour[t] < 23)
 		P_G_DK1[6] = 900.0
 		P_G_DK2[1] = 1100.0
 	else
@@ -126,17 +126,44 @@ function initialize_data!(hour, df, P_G_DK1, P_G_DK2)
 	P_G_DK2[9] = df.EastWind₂[t]
 
 	# Set total bids
-	b_DK1 = vcat(P_G_DK1, df.DK1[t] + df.DK1_Import[t] + df.DK1_Export[t] - df.EastWind₁[t])
-	b_DK2 = vcat(P_G_DK2, df.DK2[t] + df.DK2_Import[t])
+	b_DK1 = [P_G_DK1; df.DK1[t] + df.DK1_Import[t] + df.DK1_Export[t] - df.EastWind₁[t]]
+	b_DK2 = [P_G_DK2; df.DK2[t] + df.DK2_Import[t]]
 	return b_DK1, b_DK2
+end
+
+function print_results(model_fbdam)
+	if termination_status(model_fbdam) == MOI.OPTIMAL
+	    println("Optimal solution found!\n")
+	    println("Generation and Demand:\n")
+	    for j in n_DK1
+	        println("$(id_DK1[j]): ", value.(y_DK1[j]), " MWh")
+	    end
+	    for i in n_DK2
+	        println("$(id_DK2[i]): ", value.(y_DK2[i]), " MWh")
+	    end
+	    println("\nObjective value: ", objective_value(model_fbdam), " €")
+	    println("\nMarket equilibrium DK1: ", dual(balance_DK1), " €/MWh")
+	    println("\nMarket equilibrium DK2: ", dual(balance_DK2), " €/MWh")
+	    else
+	        error("No solution.")
+	end
+end
+
+function create_symbols(vector_of_strings)
+	tags = Array{Symbol}(undef,length(vector_of_strings))
+	for (i,s) in enumerate(vector_of_strings)
+		tags[i] = Symbol(s)
+	end
+	return tags
 end
 
 ## Data cleaning
 
-# Set file names
-files=["consumption-prognosis_2019_hourly.csv","consumption-prognosis_2020_hourly.csv","wind-power-dk-prognosis_2019_hourly.csv","wind-power-dk-prognosis_2020_hourly.csv"]
+# Set file names (CSV files were used insted of xls)
+files = ["consumption-prognosis_2019_hourly.csv","consumption-prognosis_2020_hourly.csv",
+		"wind-power-dk-prognosis_2019_hourly.csv","wind-power-dk-prognosis_2020_hourly.csv"]
 
-# Imports and Exports
+# Set imports and Exports
 imp_DK1_NO = -100 # [MW]
 exp_DK1_DE = 120 # [MW] from 8am to 3pm only
 imp_DK2_SE = -80 # [MW] from 11am to 5pm only
@@ -171,11 +198,13 @@ df_consumption = nothing
 dfs_wind = nothing
 df_wind = nothing
 
-## Model
+## Initialize input vectors
 
 # Suppliers per BZ
-supplier_DK1 = ["FlexiGas","FlexiGas","FlexiGas","Peako","Peako","Nuke22","CoalAtLast", "WestWind₁", "WestWind₂"]
-supplier_DK2 = ["Nuke22","RoskildeCHP","RoskildeCHP","Avedøvre","Avedøvre","BlueWater","BlueWater","CoalAtLast", "EastWind₂"]
+supplier_DK1 = 	["FlexiGas","FlexiGas","FlexiGas","Peako","Peako","Nuke22","CoalAtLast",
+				"WestWind₁", "WestWind₂"]
+supplier_DK2 = 	["Nuke22","RoskildeCHP","RoskildeCHP","Avedøvre","Avedøvre","BlueWater",
+				"BlueWater","CoalAtLast", "EastWind₂"]
 id_DK1 = ["G₁","G₂","G₃","G₄","G₅","G₆","G₇", "WW₁", "WW₂", "DK1"]
 id_DK2 = ["G₈","G₉","G₁₀","G₁₁","G₁₂","G₁₃","G₁₄","G₁₅", "EW₂", "DK2"]
 
@@ -210,22 +239,31 @@ P_G_DK2  = [1100.0,300.0,380.0,360.0,320.0,750.0,600.0,860.0, 0.0]
 λ_G_DK2 = [17,44,40,37,32,5,12,235,-12]
 
 # Total bids
-c_DK1 = vcat(λ_G_DK1, 0) # Generators plus demand at zero price
-c_DK2 = vcat(λ_G_DK2, 0) # Generators plus demand at zero price
+c_DK1 = [λ_G_DK1; 0] # Generators plus demand at zero price
+c_DK2 = [λ_G_DK2; 0] # Generators plus demand at zero price
 
 # Helping matrices
-A_eq_DK1 = transpose(vcat(ones(N_G_DK1),-1))
-A_eq_DK2 = transpose(vcat(ones(N_G_DK2),-1))
+A_eq_DK1 = transpose([ones(N_G_DK1);-1])
+A_eq_DK2 = transpose([ones(N_G_DK2);-1])
 A_DK1 = Array(Diagonal(ones(N_DK1)))
 A_DK2 = Array(Diagonal(ones(N_DK2)))
 
+## Model
+
+# Initialize output DataFrame
+tags = create_symbols(["Total Cost"; "λₛ_DK1"; "λₛ_DK2"; id_DK1; id_DK2; "HVDC"])
+df_results = DataFrame(fill(Float64,length(tags)), tags, 0)
+
+# Run model for all T
 for t in T
 
-	b_DK1, b_DK2 = initialize_data!(df.Hour[t], df, P_G_DK1, P_G_DK2)
+	# Initialize data for nuclear, wind power and set total bids vectors
+	b_DK1, b_DK2 = initialize_data!(t, df, P_G_DK1, P_G_DK2)
 
+	# Set bidding zones' status (stable, shortage in DK1, shortage in DK2 or shortage)
 	status = check_status!(sum(P_G_DK1), sum(P_G_DK2), b_DK1[end], b_DK2[end])
 
-	# Model
+	# Boot model
 	model_fbdam = Model(with_optimizer(Gurobi.Optimizer))
 
 	# Variables
@@ -242,7 +280,8 @@ for t in T
 	# Balance equation
 	@constraint(model_fbdam, balance_DK1, A_eq_DK1*y_DK1 == b_eq)
 	@constraint(model_fbdam, balance_DK2, A_eq_DK2*y_DK2 == -b_eq)
-	# Load shedding
+
+	# Load shedding constraints depending on bidding zones' status
 	if status == "Stable"
 		@constraint(model_fbdam, stable_DK1, y_DK1[end] >= b_DK1[end])
 		@constraint(model_fbdam, stable_DK2, y_DK2[end] >= b_DK2[end])
@@ -259,30 +298,16 @@ for t in T
 
 	# Solve
 	optimize!(model_fbdam)
+
+	# Add t=x results to DataFrame
+	results = 	[objective_value(model_fbdam); dual(balance_DK1); dual(balance_DK1);
+				[value.(y_DK1); value.(y_DK2)]; value.(b_eq)]
+	push!(df_results, results)
+
 end
 
-# Model output
-if termination_status(model_fbdam) == MOI.OPTIMAL
-    println("Optimal solution found!\n")
-    println("Generation and Demand:\n")
-    for j in n_DK1
-        println("$(id_DK1[j]): ", value.(y_DK1[j]), " MWh")
-    end
-    for i in n_DK2
-        println("$(id_DK2[i]): ", value.(y_DK2[i]), " MWh")
-    end
-    println("\nObjective value: ", objective_value(model_fbdam), " €")
-    println("\nMarket equilibrium DK1: ", dual(balance_DK1), " €/MWh")
-    println("\nMarket equilibrium DK2: ", dual(balance_DK2), " €/MWh")
-    else
-        error("No solution.")
-end
-
-power = Array(n)
-for k in n
-    power_DK1[k]=value.(y_DK1)[k]
-    power_DK2[k]=value.(y_DK2)[k]
-end
+# Print results for t=x for testing purposes
+#print_results(model_fbdam)
 
 # Data Frames
 df_G = DataFrame(Supplier=supplier,ID_G=id_G,Offer_G=P_G,Price_G=λ_G,Schedule_G=power[1:N_G],Market_G=fill(dual(balance),N_G))
@@ -291,5 +316,7 @@ df_G.PayAsBid_G = df_G.Schedule_G.*df_G.Price_G
 df_G.UniformPricing_G = df_G.Schedule_G.*df_G.Market_G
 df_D.PayAsBid_D = df_D.Schedule_D.*df_D.Price_D
 df_D.UniformPricing_D = df_D.Schedule_D.*df_D.Market_D
+
+## Data Visualization
 
 #plot(bidsSupplier.AggregatedQ,bidsSupplier.Price,w=2,t=:steppre, xlim=(0,sum(bidsSupplier.Quantity)), xlab="Quantity [MWh]", ylab="Price [EUR/MWh]", color="darkred", legend=false)
