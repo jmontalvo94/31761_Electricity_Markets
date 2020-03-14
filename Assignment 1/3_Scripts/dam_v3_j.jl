@@ -126,8 +126,8 @@ function initialize_data!(t, df, P_G_DK1, P_G_DK2)
 	P_G_DK2[9] = df.EastWind₂[t]
 
 	# Set total bids
-	b_DK1 = [P_G_DK1; df.DK1[t] + df.DK1_Import[t] + df.DK1_Export[t] - df.EastWind₁[t]]
-	b_DK2 = [P_G_DK2; df.DK2[t] + df.DK2_Import[t]]
+	b_DK1 = [P_G_DK1; df.DK1[t] + df.DK1_Import[t] + df.DK1_Export[t]]
+	b_DK2 = [P_G_DK2; df.DK2[t] + df.DK2_Import[t] - df.EastWind₁[t]]
 	return b_DK1, b_DK2
 end
 
@@ -234,7 +234,7 @@ n_DK2 = collect(1:N_DK2)
 P_G_DK1  = [380.0,350.0,320.0,370.0,480.0,900.0,1200.0, 0.0, 0.0]
 P_G_DK2  = [1100.0,300.0,380.0,360.0,320.0,750.0,600.0,860.0, 0.0]
 
-# Supplier bids
+# Supplier bid price
 λ_G_DK1 = [72,62,150,80,87,24,260,0,-17]
 λ_G_DK2 = [17,44,40,37,32,5,12,235,-12]
 
@@ -251,8 +251,13 @@ A_DK2 = Array(Diagonal(ones(N_DK2)))
 ## Model
 
 # Initialize output DataFrame
-tags = create_symbols(["Total Cost"; "λₛ_DK1"; "λₛ_DK2"; id_DK1; id_DK2; "HVDC"])
-df_results = DataFrame(fill(Float64,length(tags)), tags, 0)
+tags_results = create_symbols(["SystemCost"; "λₛ_DK1"; "λₛ_DK2"; "DK1"; "HVDC"; "DK2";
+ 								"G_DK1"; "W_DK1"; "G_DK2"; "W_DK2"])
+tags_results_DK1 = create_symbols(["SystemCost"; "λₛ_DK1"; "HVDC"; id_DK1[end]; id_DK1[1:end-1]])
+tags_results_DK2 = create_symbols(["SystemCost"; "λₛ_DK2"; "HVDC"; id_DK2[end]; id_DK2[1:end-1]])
+df_results = DataFrame(fill(Float64,length(tags_results)), tags_results, 0)
+df_results_DK1 = DataFrame(fill(Float64,length(tags_results_DK1)), tags_results_DK1, 0)
+df_results_DK2 = DataFrame(fill(Float64,length(tags_results_DK2)), tags_results_DK2, 0)
 
 # Run model for all T
 for t in T
@@ -300,23 +305,39 @@ for t in T
 	optimize!(model_fbdam)
 
 	# Add t=x results to DataFrame
-	results = 	[objective_value(model_fbdam); dual(balance_DK1); dual(balance_DK1);
-				[value.(y_DK1); value.(y_DK2)]; value.(b_eq)]
+	results = 	[objective_value(model_fbdam); dual(balance_DK1); dual(balance_DK2);
+				value.(y_DK1)[end]; value.(b_eq); value.(y_DK2)[end];
+				sum(value.(y_DK1).data[1:7]); sum(value.(y_DK1).data[8:9]);
+				sum(value.(y_DK2).data[1:8]); value.(y_DK2)[9]]
+	results_DK1 = 	[objective_value(model_fbdam); dual(balance_DK1); value.(b_eq);
+					value.(y_DK1)[end]; value.(y_DK1).data[1:end-1]]
+	results_DK2 =	[objective_value(model_fbdam); dual(balance_DK2); value.(b_eq);
+					value.(y_DK2)[end]; value.(y_DK2).data[1:end-1]]
 	push!(df_results, results)
-
+	push!(df_results_DK1, results_DK1)
+	push!(df_results_DK2, results_DK2)
 end
 
-# Print results for t=x for testing purposes
+
+# Print results on t=x for testing purposes
 #print_results(model_fbdam)
 
-# Data Frames
-df_G = DataFrame(Supplier=supplier,ID_G=id_G,Offer_G=P_G,Price_G=λ_G,Schedule_G=power[1:N_G],Market_G=fill(dual(balance),N_G))
-df_D = DataFrame(Consumer=consumer,ID_D=id_D,Offer_D=P_D,Price_D=λ_D,Schedule_D=power[N_G+1:maximum(n)],Market_D=fill(dual(balance),N_D))
-df_G.PayAsBid_G = df_G.Schedule_G.*df_G.Price_G
-df_G.UniformPricing_G = df_G.Schedule_G.*df_G.Market_G
-df_D.PayAsBid_D = df_D.Schedule_D.*df_D.Price_D
-df_D.UniformPricing_D = df_D.Schedule_D.*df_D.Market_D
+# Auxiliary DataFrames to check results
+df_results = hcat(select(df, Between(:Year, :Hour)), df_results)
+df_results_DK1 = hcat(select(df, Between(:Year, :Hour)), df_results_DK1)
+df_results_DK2 = hcat(select(df, Between(:Year, :Hour)), df_results_DK2)
+df_congestion = filter(row -> row[:HVDC] == 600 || row[:HVDC] == -600, df_results)
+df_revenues_DK1 = hcat(select(df_results_DK1, Between(:Year, :Hour)), select(df_results_DK1, Between(:G₁, :WW₂)).*df_results_DK1.λₛ_DK1)
+df_revenues_DK2 = hcat(select(df_results_DK2, Between(:Year, :Hour)), select(df_results_DK2, Between(:G₈, :EW₂)).*df_results_DK2.λₛ_DK2)
+
+## Analyze results
+
+describe(df_revenues_DK1, :sum =>sum)
+describe(df_revenues_DK2, :sum =>sum)
+
+aggregate(df_results_DK1, :Month, sum)
+aggregate(df_results_DK2, :Month, sum)
 
 ## Data Visualization
 
-#plot(bidsSupplier.AggregatedQ,bidsSupplier.Price,w=2,t=:steppre, xlim=(0,sum(bidsSupplier.Quantity)), xlab="Quantity [MWh]", ylab="Price [EUR/MWh]", color="darkred", legend=false)
+plot(bidsSupplier.AggregatedQ,bidsSupplier.Price,w=2,t=:steppre, xlim=(0,sum(bidsSupplier.Quantity)), xlab="Quantity [MWh]", ylab="Price [EUR/MWh]", color="darkred", legend=false)
