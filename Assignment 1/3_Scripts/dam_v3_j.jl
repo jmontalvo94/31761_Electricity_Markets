@@ -327,17 +327,18 @@ df_results = hcat(select(df, Between(:Year, :Hour)), df_results)
 df_results_DK1 = hcat(select(df, Between(:Year, :Hour)), df_results_DK1)
 df_results_DK2 = hcat(select(df, Between(:Year, :Hour)), df_results_DK2)
 df_congestion = filter(row -> row[:HVDC] == 600 || row[:HVDC] == -600, df_results)
-df_revenues_DK1 = hcat(select(df_results_DK1, Between(:Year, :Hour)), select(df_results_DK1, Between(:G₁, :WW₂)).*df_results_DK1.λₛ_DK1)
-df_revenues_DK2 = hcat(select(df_results_DK2, Between(:Year, :Hour)), select(df_results_DK2, Between(:G₈, :EW₂)).*df_results_DK2.λₛ_DK2)
+df_revenues_DK1 = 	hcat(select(df_results_DK1, Between(:Year, :Hour)),
+					select(df_results_DK1, Between(:G₁, :WW₂)).*df_results_DK1.λₛ_DK1)
+df_revenues_DK2 = 	hcat(select(df_results_DK2, Between(:Year, :Hour)),
+					select(df_results_DK2, Between(:G₈, :EW₂)).*df_results_DK2.λₛ_DK2)
 
-## Analyze results
+## Export results
 
-describe(df_revenues_DK1, :sum =>sum)
-describe(df_revenues_DK2, :sum =>sum)
-
-aggregate(df_results_DK1, :Month, sum)
-aggregate(df_results_DK2, :Month, sum)
-
-## Data Visualization
-
-plot(bidsSupplier.AggregatedQ,bidsSupplier.Price,w=2,t=:steppre, xlim=(0,sum(bidsSupplier.Quantity)), xlab="Quantity [MWh]", ylab="Price [EUR/MWh]", color="darkred", legend=false)
+sheets = Dict(:df=>(collect(DataFrames.eachcol(df)), names(df)),
+		:df_results=>(collect(DataFrames.eachcol(df_results)), names(df_results)),
+		:df_results_DK1=>(collect(DataFrames.eachcol(df_results_DK1)), names(df_results_DK1)),
+		:df_results_DK2=>(collect(DataFrames.eachcol(df_results_DK2)), names(df_results_DK2)),
+		:df_congestion=>(collect(DataFrames.eachcol(df_congestion)), names(df_congestion)),
+		:df_revenues_DK1=>(collect(DataFrames.eachcol(df_revenues_DK1)), names(df_revenues_DK1)),
+		:df_revenues_DK2=>(collect(DataFrames.eachcol(df_revenues_DK2)), names(df_revenues_DK2)),)
+XLSX.writetable("output_data.xlsx"; sheets...)
