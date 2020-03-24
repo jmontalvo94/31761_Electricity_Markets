@@ -1,4 +1,4 @@
-# 31761 - Renewables in Electricity Marekts
+# 31761 - Renewables in Electricity Markets
 This repository is intended for the individual projects of the course '31761 - Renewables in Electricity' from the Technical University of Denmark (DTU) and teached by [Pierre Pinson](http://pierrepinson.com/). It contains all the data, scripts, literature, and reports for each assignment.
 
 # Program
