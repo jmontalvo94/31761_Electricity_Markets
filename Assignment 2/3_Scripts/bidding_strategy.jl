@@ -34,6 +34,7 @@ function convert_str_to_int!(df::DataFrame, cols::Tuple{Integer,Integer,Integer}
     for col in cols
         df[!,col] = parse.(Int64, df_forecast[:,col])
     end
+    return df
 end
 
 function convert_int_to_date!(df::DataFrame, cols::Tuple{Integer,Integer})
@@ -41,6 +42,7 @@ function convert_int_to_date!(df::DataFrame, cols::Tuple{Integer,Integer})
     for col in cols
         df[!,col] = DateTime.(string.(df[!,col]), format)
     end
+    return df
 end
 
 
