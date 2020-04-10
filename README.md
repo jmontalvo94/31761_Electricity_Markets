@@ -1,3 +1,5 @@
+[![Code Style: Blue](https://img.shields.io/badge/code%20style-blue-4495d1.svg)](https://github.com/invenia/BlueStyle)
+
 # 31761 - Renewables in Electricity Markets
 This repository is intended for the individual projects of the course '31761 - Renewables in Electricity' from the Technical University of Denmark (DTU) and teached by [Pierre Pinson](http://pierrepinson.com/). It contains all the data, scripts, literature, and reports for each assignment.
 
