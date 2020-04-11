@@ -49,12 +49,12 @@ function read_to_dfs(files::Array{String,1})
 	dfs = Array{DataFrame,1}(undef,4)
 	for (i, file) in enumerate(files)
 	    if file[1:6] == "elspot"
-			df = DataFrame(CSV.File(file, header=3, datarow=4))
+			df = DataFrame(CSV.File(file, header=3, datarow=4, decimal=','))
 		    df = rename!(df, :1 => "Date")
 	        df = select!(df, [:Date, :Hours, :DK1])
 			dfs[i] = df
 		else
-			df = DataFrame(CSV.File(file, header=4, datarow=5))
+			df = DataFrame(CSV.File(file, header=4, datarow=5, decimal=','))
 		    df = rename!(df, :1 => "Date")
 	        df = select!(df, :Date, :Hours, :23, :24)
 			dfs[i] = df
