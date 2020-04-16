@@ -132,8 +132,6 @@ Missing values:
 There are 122 missing actual power measurements and 238 missing deterministic power
 forecasts and quantiles; these are removed.
 =#
-df_missing_meas = filter(row -> ismissing(row[:meas]), df_forecast)
-df_missing_rest = filter(row -> ismissing(row[:fore]), df_forecast)
 dropmissing!(df_forecast)
 
 #=
@@ -170,6 +168,11 @@ Down_10 are converted to Integer.
 adjust_date!([df_elspot16, df_elspot17, df_reg16, df_reg17])
 adjust_hours!([df_elspot16, df_elspot17, df_reg16, df_reg17])
 convert_str_to_int!([df_elspot16, df_elspot17, df_reg16, df_reg17])
+
+# Merge of market data DataFrames and clean variables
+df_market16 = join(df_elspot16, df_reg16, on=[:Date, :Hours])
+df_market17 = join(df_elspot17, df_reg17, on=[:Date, :Hours])
+df_elspot16, df_elspot17, df_reg16, df_reg17 = [nothing for _ = 1:4]
 
 
 ## Analysis
