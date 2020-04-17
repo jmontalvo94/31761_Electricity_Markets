@@ -5,6 +5,7 @@ using DataFrames
 using Dates
 using DelimitedFiles
 using HTTP
+using Plots
 
 ## Define functions
 
@@ -204,9 +205,10 @@ filter(row -> row[:DK1] != row[:Down_10] && row[:DK1] != row[:Up_10], df_market1
 # Base
 
 # Deterministic
-revenue_dayahead = sum(df_forecast.fore[i]*df_market17.DK1[i] for i in size(dt_17))
-revenue_balancing = zeros(size(dt_17))
-for i in size(dt_17)
+I=collect(1:length(dt_17))
+revenue_dayahead = sum(df_forecast.fore[i]*df_market17.DK1[i] for i in I)
+revenue_balancing = zeros(length(dt_17))
+for i in I
 	if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
 		revenue_balancing[i]=(df_forecast.meas[i]-df_forecast.fore[i])*df_market17.DK1[i]
 	elseif df_market17.DK1[i]==df_market17.Up_10[i]!=df_market17.Down_10[i]
@@ -218,4 +220,8 @@ for i in size(dt_17)
 	end
 end
 revenue_det=revenue_dayahead+sum(revenue_balancing)
+
+plot(1:24, df_forecast.fore[1:24],label = "forecast")
+plot!(1:24, df_forecast.meas[1:24],label = "real")
+
 # Probabilistic
