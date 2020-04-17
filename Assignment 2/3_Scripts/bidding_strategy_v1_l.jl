@@ -49,12 +49,12 @@ function read_to_dfs(files::Array{String,1})
 	dfs = Array{DataFrame,1}(undef,4)
 	for (i, file) in enumerate(files)
 	    if file[1:6] == "elspot"
-			df = DataFrame(CSV.File(file, header=3, datarow=4, decimal=','))
+			df = DataFrame(CSV.File(file; header=3, datarow=4))
 		    df = rename!(df, :1 => "Date")
 	        df = select!(df, [:Date, :Hours, :DK1])
 			dfs[i] = df
 		else
-			df = DataFrame(CSV.File(file, header=4, datarow=5, decimal=','))
+			df = DataFrame(CSV.File(file; header=4, datarow=5))
 		    df = rename!(df, :1 => "Date")
 	        df = select!(df, :Date, :Hours, :23, :24)
 			dfs[i] = df
@@ -104,6 +104,7 @@ function adjust_hours!(dfs::Array{DataFrame,1})
 			hours_new[i] = parse(Int64, hours_old[1:2]) + 1
 		end
 		df.Hours = hours_new
+		insertcols!(df, 1, :Datetime => DateTime.(df.Date, Time.(df.Hours .- 1)))
 	end
 	return dfs
 end
@@ -112,7 +113,7 @@ function convert_str_to_int!(dfs::Array{DataFrame,1})
     for df in dfs
 		temp = replace.(df[:, end], "," => ".")
         df[!, end] = parse.(Float64, temp)
-		if length(names(df)) > 3
+		if length(names(df)) > 4
 			temp = replace.(df[:, end - 1], "," => ".")
 			df[!, end - 1] = parse.(Float64, temp)
 		end
@@ -170,13 +171,51 @@ adjust_hours!([df_elspot16, df_elspot17, df_reg16, df_reg17])
 convert_str_to_int!([df_elspot16, df_elspot17, df_reg16, df_reg17])
 
 # Merge of market data DataFrames and clean variables
-df_market16 = join(df_elspot16, df_reg16, on=[:Date, :Hours])
-df_market17 = join(df_elspot17, df_reg17, on=[:Date, :Hours])
+df_market16 = join(df_elspot16, df_reg16, on=[:Datetime, :Date, :Hours])
+df_market17 = join(df_elspot17, df_reg17, on=[:Datetime, :Date, :Hours])
 df_elspot16, df_elspot17, df_reg16, df_reg17 = [nothing for _ = 1:4]
+
+# Create clean DateTime indexes to compare with datasets
+dt_16 = collect(DateTime(2016,1,1,0,0,0):Hour(1):DateTime(2016,12,31,23,0,0))
+dt_17 = collect(DateTime(2017,1,1,0,0,0):Hour(1):DateTime(2017,12,31,23,0,0))
+
+# Sanity-check
+dt_16 == df_market16.Datetime
+dt_17 == df_market17.Datetime
+# unique dates on dato when year is 2017
+forecast_dato = unique(filter(row -> year(row[:dato]) == 2017, df_forecast).dato)
+missing_dato = setdiff(dt_17, forecast_dato)
 
 
 ## Analysis
 
-# Create clean datetime indexes to compare with datasets
-dt_16 = collect(DateTime(2016,1,1,0,0,0):Hour(1):DateTime(2016,12,31,23,0,0))
-dt_17 = collect(DateTime(2017,1,1,0,0,0):Hour(1):DateTime(2017,12,31,23,0,0))
+# Forecast
+describe(df_forecast, :mean, :std, :min, :median, :max, cols=Not([:dato, :dati, :hors]))
+
+# Market analysis of 2016
+filter(row -> row[:DK1] == row[:Up_10] == row[:Down_10], df_market16) # Balance
+filter(row -> row[:DK1] == row[:Up_10] != row[:Down_10], df_market16) # Down-regulation
+filter(row -> row[:DK1] == row[:Down_10] != row[:Up_10], df_market16) # Up-regulation
+filter(row -> row[:DK1] != row[:Down_10] && row[:DK1] != row[:Up_10], df_market16) # Both
+
+
+## Bidding
+
+# Base
+
+# Deterministic
+revenue_dayahead = sum(df_forecast.fore[i]*df_market17.DK1[i] for i in size(dt_17))
+revenue_balancing = zeros(size(dt_17))
+for i in size(dt_17)
+	if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
+		revenue_balancing[i]=(df_forecast.meas[i]-df_forecast.fore[i])*df_market17.DK1[i]
+	elseif df_market17.DK1[i]==df_market17.Up_10[i]!=df_market17.Down_10[i]
+		revenue_balancing[i]=(df_forecast.meas[i]-df_forecast.fore[i])*df_market17.Down_10[i]
+	elseif df_market17.DK1[i]==df_market17.Down_10[i]!=df_market17.Up_10[i]
+		revenue_balancing[i]=(df_forecast.fore[i]-df_forecast.meas[i])*df_market17.Up_10[i]
+	elseif df_market17.DK1[i]!=df_market17.Down_10[i] && df_market17.DK1[i]!=df_market17.Up_10[i]
+		revenue_balancing[i]=(df_forecast.meas[i]-df_forecast.fore[i])*df_market17.Down_10[i]-(df_forecast.fore[i]-df_forecast.meas[i])*df_market17.Up_10[i]
+	end
+end
+revenue_det=revenue_dayahead+sum(revenue_balancing)
+# Probabilistic
