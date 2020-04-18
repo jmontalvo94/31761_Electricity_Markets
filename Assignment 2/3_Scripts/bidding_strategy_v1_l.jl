@@ -183,6 +183,7 @@ dt_17 = collect(DateTime(2017,1,1,0,0,0):Hour(1):DateTime(2017,12,31,23,0,0))
 # Sanity-check
 dt_16 == df_market16.Datetime
 dt_17 == df_market17.Datetime
+
 # unique dates on dato when year is 2017
 forecast_dato = unique(filter(row -> year(row[:dato]) == 2017, df_forecast).dato)
 missing_dato = setdiff(dt_17, forecast_dato)
@@ -206,22 +207,56 @@ filter(row -> row[:DK1] != row[:Down_10] && row[:DK1] != row[:Up_10], df_market1
 
 # Deterministic
 I=collect(1:length(dt_17))
-revenue_dayahead = sum(df_forecast.fore[i]*df_market17.DK1[i] for i in I)
+revenue_dayahead = zeros(length(dt_17))
+revenue_best = zeros(length(dt_17))
 revenue_balancing = zeros(length(dt_17))
-for i in I
-	if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
-		revenue_balancing[i]=(df_forecast.meas[i]-df_forecast.fore[i])*df_market17.DK1[i]
-	elseif df_market17.DK1[i]==df_market17.Up_10[i]!=df_market17.Down_10[i]
-		revenue_balancing[i]=(df_forecast.meas[i]-df_forecast.fore[i])*df_market17.Down_10[i]
-	elseif df_market17.DK1[i]==df_market17.Down_10[i]!=df_market17.Up_10[i]
-		revenue_balancing[i]=(df_forecast.fore[i]-df_forecast.meas[i])*df_market17.Up_10[i]
-	elseif df_market17.DK1[i]!=df_market17.Down_10[i] && df_market17.DK1[i]!=df_market17.Up_10[i]
-		revenue_balancing[i]=(df_forecast.meas[i]-df_forecast.fore[i])*df_market17.Down_10[i]-(df_forecast.fore[i]-df_forecast.meas[i])*df_market17.Up_10[i]
+for j in 1:length(df_forecast.dato)
+	for i in I
+		if dt_17[i]==df_forecast.dato[j]
+			revenue_dayahead[i] = df_forecast.fore[j]*df_market17.DK1[i]
+			revenue_best[i] = df_forecast.meas[j]*df_market17.DK1[i]
+			if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
+				revenue_balancing[i]=(df_forecast.meas[j]-df_forecast.fore[j])*df_market17.DK1[i]
+			elseif df_market17.DK1[i]==df_market17.Up_10[i]!=df_market17.Down_10[i]
+				revenue_balancing[i]=(df_forecast.meas[j]-df_forecast.fore[j])*df_market17.Down_10[i]
+			elseif df_market17.DK1[i]==df_market17.Down_10[i]!=df_market17.Up_10[i]
+				revenue_balancing[i]=(df_forecast.meas[j]-df_forecast.fore[j])*df_market17.Up_10[i]
+			elseif df_market17.DK1[i]!=df_market17.Down_10[i] && df_market17.DK1[i]!=df_market17.Up_10[i]
+				revenue_balancing[i]=(df_forecast.meas[j]-df_forecast.fore[j])*df_market17.Down_10[i]-(df_forecast.fore[j]-df_forecast.meas[j])*df_market17.Up_10[i]
+			end
+		end
 	end
 end
-revenue_det=revenue_dayahead+sum(revenue_balancing)
+revenue_det=sum(revenue_dayahead)+sum(revenue_balancing)
 
 plot(1:24, df_forecast.fore[1:24],label = "forecast")
 plot!(1:24, df_forecast.meas[1:24],label = "real")
+
+new_strat=df_forecast.fore*1.05
+revenue_dayahead_new = zeros(length(dt_17))
+#sum(new_strat[i]*df_market17.DK1[i] for i in I)
+revenue_balancing_new = zeros(length(dt_17))
+for j in 1:length(df_forecast.dato)
+	for i in I
+		if dt_17[i]==df_forecast.dato[j]
+			revenue_dayahead_new[i] = new_strat[j]*df_market17.DK1[i]
+			if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
+				revenue_balancing_new[i]=(df_forecast.meas[j]-new_strat[j])*df_market17.DK1[i]
+			elseif df_market17.DK1[i]==df_market17.Up_10[i]!=df_market17.Down_10[i]
+				revenue_balancing_new[i]=(df_forecast.meas[j]-new_strat[j])*df_market17.Down_10[i]
+			elseif df_market17.DK1[i]==df_market17.Down_10[i]!=df_market17.Up_10[i]
+				revenue_balancing_new[i]=(df_forecast.meas[j]-new_strat[j])*df_market17.Up_10[i]
+			elseif df_market17.DK1[i]!=df_market17.Down_10[i] && df_market17.DK1[i]!=df_market17.Up_10[i]
+				revenue_balancing_new[i]=(df_forecast.meas[j]-new_strat[j])*df_market17.Down_10[i]-(new_strat[j]-df_forecast.meas[j])*df_market17.Up_10[i]
+			end
+		end
+	end
+end
+revenue_det_new=sum(revenue_dayahead_new)+sum(revenue_balancing_new)
+
+rev_dot=sum(revenue_best)
+
+γ_norm = revenue_det/rev_dot*100
+γ_new = revenue_det_new/rev_dot*100
 
 # Probabilistic
