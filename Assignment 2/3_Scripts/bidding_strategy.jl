@@ -2,9 +2,12 @@
 
 using CSV
 using DataFrames
+using DataFramesMeta
 using Dates
 using DelimitedFiles
 using HTTP
+using Plots
+using Statistics
 
 ## Define functions
 
@@ -121,6 +124,19 @@ function convert_str_to_int!(dfs::Array{DataFrame,1})
     return dfs
 end
 
+function count_hours(dfs::Array{DataFrame,1})
+	df_counts = Array{DataFrame,1}(undef,length(dfs))
+	for (i, df) in enumerate(dfs)
+		df_counts[i] = @linq df |>
+		transform(Month = month.(:Datetime)) |>
+		by(
+		[:Month, :Hours],
+		N = length(:DK1)
+		)
+	end
+	return df_counts
+end
+
 ## Data loading and cleaning
 
 # Fetch forecast data from URL and change column name for q10
@@ -187,22 +203,115 @@ forecast_dato = unique(filter(row -> year(row[:dato]) == 2017, df_forecast).dato
 missing_dato = setdiff(dt_17, forecast_dato)
 
 
-## Analysis
+## Insights from 2016
 
-# Forecast
+# Hourly profile per month from 2016 market data
+price_profile = @linq df_market16 |>
+	transform(Month = month.(:Datetime)) |>
+	by(
+	[:Month, :Hours],
+	DK1_mean = mean(:DK1), Up_10_mean = mean(:Up_10), Down_10_mean = mean(:Down_10)
+)
+# Plot monthly hourly price profile (monthly average per hour)
+plot(
+	#DateTime.(Date.(2016, mhourly_profile.Month), Time.(mhourly_profile.Hours.-1)),
+	[price_profile.Up_10_mean, price_profile.DK1_mean, price_profile.Down_10_mean],
+	label = ["Up-regulation" "Spot" "Down-regulation"],
+	xlabel = "Hour",
+	ylabel = "EUR/MWh",
+)
+
+#=
+DataFrames that hold the hours of 2016 where the system was in balance, when there was a
+need of up-regulation, down-regulation, or both. These DataFrames are then combined to only
+represent the count of hours with these four states.
+=#
+df_balance16 = filter(row -> row[:DK1] == row[:Up_10] == row[:Down_10], df_market16)
+df_down16 = filter(row -> row[:DK1] == row[:Up_10] != row[:Down_10], df_market16)
+df_up16 = filter(row -> row[:DK1] == row[:Down_10] != row[:Up_10], df_market16)
+df_updown16 = filter(row -> row[:DK1] != row[:Down_10] && row[:DK1] != row[:Up_10], df_market16)
+# Count per DataFrame
+df_counts16 = count_hours([df_balance16, df_down16, df_up16, df_updown16])
+# Clean dataframe with all months and hours
+df_cleancounts16 = DataFrame(Month = month.(dt_16), Hours = hour.(dt_16).+1)
+# Join each state DataFrame into clean, outer join!
+df_insight16 = join(
+	df_cleancounts16,
+	df_counts16[1], df_counts16[2], df_counts16[3], df_counts16[4],
+	on = [:Month, :Hours],
+	kind = :outer,
+	makeunique = true
+)
+# Change missing values to 0
+for col in 3:6
+	df_insight16[!, col] = coalesce.(df_insight16[:, col], 0)
+end
+# Drop missing labels (no missing values in reality)
+dropmissing!(df_insight16)
+# Rename columns to represent states
+rename!(df_insight16, Dict(:N => "Balance", :N_1 => "Down", :N_2 => "Up", :N_3 => "Both"))
+
+# DataFrame with average occurences per month per hour of each state
+df_insight16 = by(
+	df_insight16,
+	[:Month, :Hours],
+	Down = :Down => sum,
+	Balance = :Balance => sum,
+	Up = :Up => sum,
+	Both = :Both => sum
+)
+plot(
+	#DateTime.(Date.(2016, df_insight16.Month), Time.(df_insight16.Hours.-1)),
+	[
+	df_insight16.Down,
+	df_insight16.Balance,
+	df_insight16.Up,
+	df_insight16.Both
+	],
+	label = ["Down-regulation" "Balance" "Up-regulation" "Both"],
+	xlabel = "Month/Hour",
+	ylabel = "Occurences",
+)
+
+df_november16 = filter(row -> row[:Month] == 11, df_insight16)
+plot(
+	[
+	df_november16.Down,
+	df_november16.Balance,
+	df_november16.Up,
+	df_november16.Both
+	],
+	label = ["Down-regulation" "Balance" "Up-regulation" "Both"],
+	xlabel = "Month/Hour",
+	ylabel = "Occurences",
+)
+
+state = Array{Int64}(undef, size(df_insight16)[1])
+for i in range(1, length = size(df_insight16)[1])
+	if df_insight16.Down[i] > df_insight16.Balance[i]
+		if df_insight16.Down[i] > df_insight16.Up[i]
+			state[i] = 1 # Down-regulation
+		else
+			state[i] = 2 # Up-regulation
+		end
+	elseif df_insight16.Balance[i] > df_insight16.Up[i]
+		state[i] = 3 # Balance
+	else
+		state[i] = 2 # Up-regulation
+	end
+end
+insertcols!(df_insight16, 7, :State => state)
+
+histogram(state, xticks=(1:3, ["Down-regulation" "Up-regulation" "Balance"]))
+
+
+## Base
+
+
+
+## Deterministic
+
+## Probabilistic
+
+# Forecast descriptive statistics
 describe(df_forecast, :mean, :std, :min, :median, :max, cols=Not([:dato, :dati, :hors]))
-
-# Market analysis of 2016
-filter(row -> row[:DK1] == row[:Up_10] == row[:Down_10], df_market16) # Balance
-filter(row -> row[:DK1] == row[:Up_10] != row[:Down_10], df_market16) # Down-regulation
-filter(row -> row[:DK1] == row[:Down_10] != row[:Up_10], df_market16) # Up-regulation
-filter(row -> row[:DK1] != row[:Down_10] && row[:DK1] != row[:Up_10], df_market16) # Both
-
-
-## Bidding
-
-# Base
-
-# Deterministic
-
-# Probabilistic
