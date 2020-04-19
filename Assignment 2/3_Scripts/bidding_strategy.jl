@@ -273,6 +273,7 @@ plot(
 	ylabel = "Occurences",
 )
 
+# Example of November where there's a lot of Up-regulation need
 df_november16 = filter(row -> row[:Month] == 11, df_insight16)
 plot(
 	[
@@ -286,6 +287,7 @@ plot(
 	ylabel = "Occurences",
 )
 
+# Divide the representative hours into three states
 state = Array{Int64}(undef, size(df_insight16)[1])
 for i in range(1, length = size(df_insight16)[1])
 	if df_insight16.Down[i] > df_insight16.Balance[i]
@@ -301,7 +303,6 @@ for i in range(1, length = size(df_insight16)[1])
 	end
 end
 insertcols!(df_insight16, 7, :State => state)
-
 histogram(state, xticks=(1:3, ["Down-regulation" "Up-regulation" "Balance"]))
 
 
