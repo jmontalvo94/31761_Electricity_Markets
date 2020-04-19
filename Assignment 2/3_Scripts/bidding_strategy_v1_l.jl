@@ -210,10 +210,12 @@ filter(row -> row[:DK1] != row[:Down_10] && row[:DK1] != row[:Up_10], df_market1
 I=collect(1:length(dt_17))
 revenue_dayahead = zeros(length(dt_17))
 revenue_best = zeros(length(dt_17))
+x=zeros(length(dt_17))
 revenue_balancing = zeros(length(dt_17))
 for j in 1:length(df_forecast.dato)
 	for i in I
 		if dt_17[i]==df_forecast.dato[j] && hour(df_forecast.dati[j])==11
+			x[i]=i
 			revenue_dayahead[i] = df_forecast.fore[j]*df_market17.DK1[i]
 			revenue_best[i] = df_forecast.meas[j]*df_market17.DK1[i]
 			if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
