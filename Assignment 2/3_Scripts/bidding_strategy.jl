@@ -319,23 +319,23 @@ revenue_best = zeros(length(dt_17))
 revenue_balancing = zeros(length(dt_17))
 for j in 1:length(df_forecast.dato)
 	for i in I
-		if dt_17[i]==df_forecast.dato[j] && hour(df_forecast.dati[j])==11
+		if dt_17[i] == df_forecast.dato[j] && hour(df_forecast.dati[j]) == 11
 			revenue_dayahead[i] = df_forecast.fore[j]*df_market17.DK1[i]
 			revenue_best[i] = df_forecast.meas[j]*df_market17.DK1[i]
-			if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
-				revenue_balancing[i]=(df_forecast.meas[j]-df_forecast.fore[j])*df_market17.DK1[i]
-			elseif df_market17.DK1[i]==df_market17.Up_10[i]!=df_market17.Down_10[i]
-				revenue_balancing[i]=(df_forecast.meas[j]-df_forecast.fore[j])*df_market17.Down_10[i]
-			elseif df_market17.DK1[i]==df_market17.Down_10[i]!=df_market17.Up_10[i]
-				revenue_balancing[i]=(df_forecast.meas[j]-df_forecast.fore[j])*df_market17.Up_10[i]
-			elseif df_market17.DK1[i]!=df_market17.Down_10[i] && df_market17.DK1[i]!=df_market17.Up_10[i]
-				revenue_balancing[i]=(df_forecast.meas[j]-df_forecast.fore[j])*df_market17.Down_10[i]-(df_forecast.fore[j]-df_forecast.meas[j])*df_market17.Up_10[i]
+			if df_market17.DK1[i] == df_market17.Up_10[i]==df_market17.Down_10[i]
+				revenue_balancing[i] = (df_forecast.meas[j]-df_forecast.fore[j])*df_market17.DK1[i]
+			elseif df_market17.DK1[i] == df_market17.Up_10[i]!=df_market17.Down_10[i]
+				revenue_balancing[i] = (df_forecast.meas[j]-df_forecast.fore[j])*df_market17.Down_10[i]
+			elseif df_market17.DK1[i] == df_market17.Down_10[i]!=df_market17.Up_10[i]
+				revenue_balancing[i] = (df_forecast.meas[j]-df_forecast.fore[j])*df_market17.Up_10[i]
+			elseif df_market17.DK1[i] != df_market17.Down_10[i] && df_market17.DK1[i]!=df_market17.Up_10[i]
+				revenue_balancing[i] = (df_forecast.meas[j]-df_forecast.fore[j])*df_market17.Down_10[i]-(df_forecast.fore[j]-df_forecast.meas[j])*df_market17.Up_10[i]
 			end
 		end
 	end
 end
-revenue_det=sum(revenue_dayahead)+sum(revenue_balancing)
-rev_dot=sum(revenue_best) #offering exactly as generated
+revenue_det = sum(revenue_dayahead)+sum(revenue_balancing)
+rev_dot = sum(revenue_best) #offering exactly as generated
 #plot(1:24, df_forecast.fore[1:24],label = "forecast")
 #plot!(1:24, df_forecast.meas[1:24],label = "real")
 
