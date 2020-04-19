@@ -200,6 +200,7 @@ filter(row -> row[:DK1] == row[:Up_10] != row[:Down_10], df_market16) # Down-reg
 filter(row -> row[:DK1] == row[:Down_10] != row[:Up_10], df_market16) # Up-regulation
 filter(row -> row[:DK1] != row[:Down_10] && row[:DK1] != row[:Up_10], df_market16) # Both
 
+# checking missing forecasts
 
 ## Bidding
 
@@ -212,7 +213,7 @@ revenue_best = zeros(length(dt_17))
 revenue_balancing = zeros(length(dt_17))
 for j in 1:length(df_forecast.dato)
 	for i in I
-		if dt_17[i]==df_forecast.dato[j]
+		if dt_17[i]==df_forecast.dato[j] && hour(df_forecast.dati[j])==11
 			revenue_dayahead[i] = df_forecast.fore[j]*df_market17.DK1[i]
 			revenue_best[i] = df_forecast.meas[j]*df_market17.DK1[i]
 			if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
@@ -238,7 +239,7 @@ revenue_dayahead_new = zeros(length(dt_17))
 revenue_balancing_new = zeros(length(dt_17))
 for j in 1:length(df_forecast.dato)
 	for i in I
-		if dt_17[i]==df_forecast.dato[j]
+		if dt_17[i]==df_forecast.dato[j] && hour(df_forecast.dati[j])==11
 			revenue_dayahead_new[i] = new_strat[j]*df_market17.DK1[i]
 			if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
 				revenue_balancing_new[i]=(df_forecast.meas[j]-new_strat[j])*df_market17.DK1[i]
@@ -317,7 +318,7 @@ prob_dayahead = zeros(length(offer))
 prob_balancing = zeros(length(offer))
 for j in 1:length(df_forecast.dato)
 	for i in I
-		if dt_16_filtered[i]==df_forecast.dato[j]
+		if dt_16_filtered[i]==df_forecast.dato[j] && hour(df_forecast.dati[j])==11
 			prob_dayahead[i] = offer[i]*df_market17.DK1[i]
 			if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
 				prob_balancing[i]=(df_forecast.meas[j]-offer[i])*df_market17.DK1[i]
