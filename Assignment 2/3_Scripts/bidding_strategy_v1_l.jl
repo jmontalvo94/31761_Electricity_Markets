@@ -205,7 +205,7 @@ filter(row -> row[:DK1] != row[:Down_10] && row[:DK1] != row[:Up_10], df_market1
 
 # Base
 
-# Deterministic
+## Deterministic - BASELINE
 I=collect(1:length(dt_17))
 revenue_dayahead = zeros(length(dt_17))
 revenue_best = zeros(length(dt_17))
@@ -228,13 +228,13 @@ for j in 1:length(df_forecast.dato)
 	end
 end
 revenue_det=sum(revenue_dayahead)+sum(revenue_balancing)
-
-plot(1:24, df_forecast.fore[1:24],label = "forecast")
-plot!(1:24, df_forecast.meas[1:24],label = "real")
+rev_dot=sum(revenue_best) #offering exactly as generated
+#plot(1:24, df_forecast.fore[1:24],label = "forecast")
+#plot!(1:24, df_forecast.meas[1:24],label = "real")
+## OFFERING A BIT MORE THAN FORECASTED (5%)
 
 new_strat=df_forecast.fore*1.05
 revenue_dayahead_new = zeros(length(dt_17))
-#sum(new_strat[i]*df_market17.DK1[i] for i in I)
 revenue_balancing_new = zeros(length(dt_17))
 for j in 1:length(df_forecast.dato)
 	for i in I
@@ -254,9 +254,83 @@ for j in 1:length(df_forecast.dato)
 end
 revenue_det_new=sum(revenue_dayahead_new)+sum(revenue_balancing_new)
 
-rev_dot=sum(revenue_best)
+#performance ratio
 
 γ_norm = revenue_det/rev_dot*100
 γ_new = revenue_det_new/rev_dot*100
 
-# Probabilistic
+## Probabilistic
+
+#remove 29-2-2016
+df_market16_filtered = filter(row -> row[:Date] != Date(2016,2,29), df_market16)
+
+#find opt quantile for each day
+π_plus = df_market16_filtered.DK1 - df_market16_filtered.Down_10
+π_minus = df_market16_filtered.Up_10 - df_market16_filtered.DK1
+opt_q = π_plus./(π_plus + π_minus)
+
+#find best offer
+offer = zeros(size(df_market16_filtered.DK1))
+for i in I
+	if opt_q[i] <= 1 && opt_q[i] > 0.9
+		offer[i] = df_forecast.q95[i]
+	elseif opt_q[i] <= 0.9 && opt_q[i] > 0.85
+		offer[i] = df_forecast.q90[i]
+	elseif opt_q[i] <= 0.85 && opt_q[i] > 0.8
+		offer[i] = df_forecast.q85[i]
+	elseif opt_q[i] <= 0.8 && opt_q[i] > 0.75
+		offer[i] = df_forecast.q80[i]
+	elseif opt_q[i] <= 0.75 && opt_q[i] > 0.7
+		offer[i] = df_forecast.q75[i]
+	elseif opt_q[i] <= 0.7 && opt_q[i] > 0.65
+		offer[i] = df_forecast.q70[i]
+	elseif opt_q[i] <= 0.65 && opt_q[i] > 0.6
+		offer[i] = df_forecast.q65[i]
+	elseif opt_q[i] <= 0.6 && opt_q[i] > 0.55
+		offer[i] = df_forecast.q60[i]
+	elseif opt_q[i] <= 0.55 && opt_q[i] > 0.5
+		offer[i] = df_forecast.q55[i]
+	elseif opt_q[i] <= 0.5 && opt_q[i] > 0.45
+		offer[i] = df_forecast.q50[i]
+	elseif opt_q[i] <= 0.45 && opt_q[i] > 0.4
+		offer[i] = df_forecast.q45[i]
+	elseif opt_q[i] <= 0.4 && opt_q[i] > 0.35
+		offer[i] = df_forecast.q40[i]
+	elseif opt_q[i] <= 0.35 && opt_q[i] > 0.3
+		offer[i] = df_forecast.q35[i]
+	elseif opt_q[i] <= 0.3 && opt_q[i] > 0.25
+		offer[i] = df_forecast.q30[i]
+	elseif opt_q[i] <= 0.25 && opt_q[i] > 0.2
+		offer[i] = df_forecast.q25[i]
+	elseif opt_q[i] <= 0.2 && opt_q[i] > 0.15
+		offer[i] = df_forecast.q20[i]
+	elseif opt_q[i] <= 0.15 && opt_q[i] > 0.1
+		offer[i] = df_forecast.q15[i]
+	elseif opt_q[i] <= 0.1 && opt_q[i] > 0.05
+		offer[i] = df_forecast.q10[i]
+	elseif opt_q[i] <= 0.05 || opt_q[i] == NaN
+		offer[i] = df_forecast.q5[i]
+	end
+end
+dt_16_filtered = [collect(DateTime(2016,1,1,0,0,0):Hour(1):DateTime(2016,2,28,23,0,0)); collect(DateTime(2016,3,1,0,0,0):Hour(1):DateTime(2016,12,31,23,0,0))]
+prob_dayahead = zeros(length(offer))
+prob_balancing = zeros(length(offer))
+for j in 1:length(df_forecast.dato)
+	for i in I
+		if dt_16_filtered[i]==df_forecast.dato[j]
+			prob_dayahead[i] = offer[i]*df_market17.DK1[i]
+			if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
+				prob_balancing[i]=(df_forecast.meas[j]-offer[i])*df_market17.DK1[i]
+			elseif df_market17.DK1[i]==df_market17.Up_10[i]!=df_market17.Down_10[i]
+				prob_balancing[i]=(df_forecast.meas[j]-offer[i])*df_market17.Down_10[i]
+			elseif df_market17.DK1[i]==df_market17.Down_10[i]!=df_market17.Up_10[i]
+				prob_balancing[i]=(df_forecast.meas[j]-offer[i])*df_market17.Up_10[i]
+			elseif df_market17.DK1[i]!=df_market17.Down_10[i] && df_market17.DK1[i]!=df_market17.Up_10[i]
+				prob_balancing[i]=(df_forecast.meas[j]-offer[i])*df_market17.Down_10[i]-(offer[i]-df_forecast.meas[j])*df_market17.Up_10[i]
+			end
+		end
+	end
+end
+prob_tot = sum(prob_dayahead)+sum(prob_balancing)
+
+γ_prob = prob_tot/rev_dot*100
