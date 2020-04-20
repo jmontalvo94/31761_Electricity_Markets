@@ -333,9 +333,9 @@ histogram(state, xticks=(1:3, ["Down-regulation" "Up-regulation" "Balance"]))
 # Baseline
 
 # Initialize empty arrays
-revenue_dayahead = Array{Float64,1}(undef,length(dt_17))
-revenue_optimal = Array{Float64,1}(undef,length(dt_17))
-revenue_balancing = Array{Float64,1}(undef,length(dt_17))
+revenue_dayahead = zeros(length(dt_17))
+revenue_optimal = zeros(length(dt_17))
+revenue_balancing = zeros(length(dt_17))
 
 # Calculate
 for j in 1:length(df_forecast.dato)
