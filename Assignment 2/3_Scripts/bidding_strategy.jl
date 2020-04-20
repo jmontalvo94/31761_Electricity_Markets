@@ -273,8 +273,20 @@ plot(
 	ylabel = "Occurences",
 )
 
-# Example of November where there's a lot of Up-regulation need
+# Example of November when there's a lot of up-regulation need
+df_january16 = filter(row -> row[:Month] == 1, df_insight16)
 df_november16 = filter(row -> row[:Month] == 11, df_insight16)
+plot(
+	[
+	df_january16.Down,
+	df_january16.Balance,
+	df_january16.Up,
+	df_january16.Both
+	],
+	label = ["Down-regulation" "Balance" "Up-regulation" "Both"],
+	xlabel = "Month/Hour",
+	ylabel = "Occurences",
+)
 plot(
 	[
 	df_november16.Down,
@@ -285,6 +297,7 @@ plot(
 	label = ["Down-regulation" "Balance" "Up-regulation" "Both"],
 	xlabel = "Month/Hour",
 	ylabel = "Occurences",
+	marker = "x"
 )
 
 # Divide the representative hours into three states
@@ -303,6 +316,11 @@ for i in range(1, length = size(df_insight16)[1])
 	end
 end
 insertcols!(df_insight16, 7, :State => state)
+insertcols!(
+	df_insight16,
+	1,
+	:Datetime => DateTime.(Date.(2016, df_insight16.Month), Time.(df_insight16.Hours.-1))
+)
 histogram(state, xticks=(1:3, ["Down-regulation" "Up-regulation" "Balance"]))
 
 
@@ -318,24 +336,28 @@ revenue_dayahead = zeros(length(dt_17))
 revenue_best = zeros(length(dt_17))
 revenue_balancing = zeros(length(dt_17))
 for j in 1:length(df_forecast.dato)
+	production = df_forecast.meas[j]
+	forecast = df_forecast.fore[j]
 	for i in I
+		λ_s = df_market17.DK1[i]
+		λ_down = df_market17.Down_10[i]
+		λ_up = df_market17.Up_10[i]
 		if dt_17[i] == df_forecast.dato[j] && hour(df_forecast.dati[j]) == 11
-			revenue_dayahead[i] = df_forecast.fore[j]*df_market17.DK1[i]
-			revenue_best[i] = df_forecast.meas[j]*df_market17.DK1[i]
-			if df_market17.DK1[i] == df_market17.Up_10[i]==df_market17.Down_10[i]
-				revenue_balancing[i] = (df_forecast.meas[j]-df_forecast.fore[j])*df_market17.DK1[i]
-			elseif df_market17.DK1[i] == df_market17.Up_10[i]!=df_market17.Down_10[i]
-				revenue_balancing[i] = (df_forecast.meas[j]-df_forecast.fore[j])*df_market17.Down_10[i]
-			elseif df_market17.DK1[i] == df_market17.Down_10[i]!=df_market17.Up_10[i]
-				revenue_balancing[i] = (df_forecast.meas[j]-df_forecast.fore[j])*df_market17.Up_10[i]
-			elseif df_market17.DK1[i] != df_market17.Down_10[i] && df_market17.DK1[i]!=df_market17.Up_10[i]
-				revenue_balancing[i] = (df_forecast.meas[j]-df_forecast.fore[j])*df_market17.Down_10[i]-(df_forecast.fore[j]-df_forecast.meas[j])*df_market17.Up_10[i]
+			revenue_dayahead[i] = forecast * λ_s
+			revenue_best[i] = production * λ_s
+			if production > forecast
+				revenue_balancing[i] = (production - forecast) * λ_down
+			elseif production < forecast
+				revenue_balancing[i] = -(forecast - production) * λ_up
+			else
+				revenue_balancing[i] = production * λ_s
 			end
 		end
 	end
 end
-revenue_det = sum(revenue_dayahead)+sum(revenue_balancing)
+revenue_det = sum(revenue_dayahead) + sum(revenue_balancing)
 rev_dot = sum(revenue_best) #offering exactly as generated
+γ_norm = revenue_det/rev_dot*100
 #plot(1:24, df_forecast.fore[1:24],label = "forecast")
 #plot!(1:24, df_forecast.meas[1:24],label = "real")
 
@@ -365,7 +387,7 @@ revenue_det_new=sum(revenue_dayahead_new)+sum(revenue_balancing_new)
 
 # Performance ratio
 
-γ_norm = revenue_det/rev_dot*100
+
 γ_new = revenue_det_new/rev_dot*100
 
 ## Probabilistic
