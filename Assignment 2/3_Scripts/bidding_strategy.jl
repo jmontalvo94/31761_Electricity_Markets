@@ -137,6 +137,16 @@ function count_hours(dfs::Array{DataFrame,1})
 	return df_counts
 end
 
+function create_bid(df::DataFrame, arr::Vector{Float64})
+	bid = []
+	j = 1
+	for i in 1:24:size(df, 1)
+		bid = vcat(bid, repeat(df.State[i:i+23], Int(arr[j])))
+		j += 1
+	end
+	return bid
+end
+
 ## Data loading and cleaning
 
 # Fetch forecast data from URL and change column name for q10
@@ -269,7 +279,7 @@ plot(
 	df_insight16.Both
 	],
 	label = ["Down-regulation" "Balance" "Up-regulation" "Both"],
-	xlabel = "Month/Hour",
+	xlabel = "Hour",
 	ylabel = "Occurences",
 )
 
@@ -284,7 +294,7 @@ plot(
 	df_january16.Both
 	],
 	label = ["Down-regulation" "Balance" "Up-regulation" "Both"],
-	xlabel = "Month/Hour",
+	xlabel = "Hour",
 	ylabel = "Occurences",
 )
 plot(
@@ -295,9 +305,8 @@ plot(
 	df_november16.Both
 	],
 	label = ["Down-regulation" "Balance" "Up-regulation" "Both"],
-	xlabel = "Month/Hour",
-	ylabel = "Occurences",
-	marker = "x"
+	xlabel = "Hour",
+	ylabel = "Occurences"
 )
 
 # Divide the representative hours into three states
@@ -323,9 +332,84 @@ insertcols!(
 )
 histogram(state, xticks=(1:3, ["Down-regulation" "Up-regulation" "Balance"]))
 
+# Obtain indexes of df_forecast with latest possible date (11am or at least 12 day before)
+idx_match = zeros(Int64, length(dt_17))
+for (i, date) in enumerate(dt_17)
+	idxs = findall(x -> x == date, df_forecast.dato)
+	for (j, idx) in enumerate(idxs)
+		if (
+			(hour(df_forecast.dati[idx]) == 11) ||
+			(
+			hour(df_forecast.dati[idx]) == 12 &&
+			(date - df_forecast.dati[idx]) >= Millisecond(86400000) # 24 hours
+			)
+		)
+			if idx_match[i] == 0
+				idx_match[i] = idx
+			elseif df_forecast.hors[idx] < df_forecast.hors[idxs[j-1]]
+				idx_match[i] = idx
+			end
+		end
+	end
+end
+missing_idx = findall(x-> x == 0, idx_match) #52 missing dates
+missing_date = dt_17[missing_idx]
+
+## Optimal
+
+# Initialize empty arrays
+revenue_optimal = zeros(length(dt_17))
+
+# Calculate
+for i in 1:length(dt_17)
+	if idx_match[i] != 0
+		production = df_forecast.meas[idx_match[i]]
+		λ_s = df_market17.DK1[i]
+		revenue_optimal[i] = production * λ_s
+	end
+end
+
+# Total revenue
+revenue_optimal_total = sum(revenue_optimal) # Offering exactly as generated
 
 ## Base
 
+# Initialize bid array
+month_hours = [count(i-> i == j, month.(dt_17)) for j in 1:12]
+month_days = month_hours/24
+
+base_bid = create_bid(df_insight16, month_days)
+
+# Initialize empty arrays
+revenue_dayahead_base = zeros(length(dt_17))
+revenue_balancing_base = zeros(length(dt_17))
+full_capacity = 160000 # [kW]
+bid_capacity = full_capacity * 0.5 # [kW]
+
+# Calculate
+for i in 1:length(dt_17)
+	if idx_match[i] != 0
+		if base_bid[i] == 1 || base_bid[i] == 3
+			forecast = full_capacity
+		else
+			forecast = bid_capacity
+		end
+		production = df_forecast.meas[idx_match[i]]
+		λ_s = df_market17.DK1[i]
+		λ_down = df_market17.Down_10[i]
+		λ_up = df_market17.Up_10[i]
+		revenue_dayahead_base[i] = forecast * λ_s
+		if production > forecast
+			revenue_balancing_base[i] = (production - forecast) * λ_down
+		elseif production < forecast
+			revenue_balancing_base[i] = -(forecast - production) * λ_up
+		end
+	end
+end
+
+# Total revenue and performance ratio
+revenue_base_total = sum(revenue_dayahead_base) + sum(revenue_balancing_base)
+γ_deterministic = revenue_base_total / revenue_optimal_total * 100
 
 
 ## Deterministic
@@ -333,65 +417,59 @@ histogram(state, xticks=(1:3, ["Down-regulation" "Up-regulation" "Balance"]))
 # Baseline
 
 # Initialize empty arrays
-revenue_dayahead = zeros(length(dt_17))
-revenue_optimal = zeros(length(dt_17))
-revenue_balancing = zeros(length(dt_17))
+revenue_dayahead_det = zeros(length(dt_17))
+revenue_balancing_det = zeros(length(dt_17))
 
 # Calculate
-for j in 1:length(df_forecast.dato)
-	production = df_forecast.meas[j]
-	forecast = df_forecast.fore[j]
-	for i in 1:length(dt_17)
+for i in 1:length(dt_17)
+	if idx_match[i] != 0
+		production = df_forecast.meas[idx_match[i]]
+		forecast = df_forecast.fore[idx_match[i]]
 		λ_s = df_market17.DK1[i]
 		λ_down = df_market17.Down_10[i]
 		λ_up = df_market17.Up_10[i]
-		if dt_17[i] == df_forecast.dato[j] && hour(df_forecast.dati[j]) == 11
-			revenue_dayahead[i] = forecast * λ_s
-			revenue_optimal[i] = production * λ_s
-			if production > forecast
-				revenue_balancing[i] = (production - forecast) * λ_down
-			elseif production < forecast
-				revenue_balancing[i] = -(forecast - production) * λ_up
-			else
-				revenue_balancing[i] = 0
-			end
+		revenue_dayahead_det[i] = forecast * λ_s
+		if production > forecast
+			revenue_balancing_det[i] = (production - forecast) * λ_down
+		elseif production < forecast
+			revenue_balancing_det[i] = -(forecast - production) * λ_up
 		end
 	end
 end
 
-# Calculate total revenue and performance ratio
-revenue_deterministic = sum(revenue_dayahead) + sum(revenue_balancing)
-revenue_optimal = sum(revenue_optimal) #offering exactly as generated
-γ_norm = revenue_deterministic/revenue_optimal*100
+# Total revenue and performance ratio
+revenue_deterministic_total = sum(revenue_dayahead_det) + sum(revenue_balancing_det)
+γ_deterministic = revenue_deterministic_total / revenue_optimal_total * 100
 
 
 # Baseline plus 5% increase
 
-new_strat=df_forecast.fore*1.05
-revenue_dayahead_new = zeros(length(dt_17))
-revenue_balancing_new = zeros(length(dt_17))
-for j in 1:length(df_forecast.dato)
-	for i in I
-		if dt_17[i]==df_forecast.dato[j] && hour(df_forecast.dati[j])==11
-			revenue_dayahead_new[i] = new_strat[j]*df_market17.DK1[i]
-			if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
-				revenue_balancing_new[i]=(df_forecast.meas[j]-new_strat[j])*df_market17.DK1[i]
-			elseif df_market17.DK1[i]==df_market17.Up_10[i]!=df_market17.Down_10[i]
-				revenue_balancing_new[i]=(df_forecast.meas[j]-new_strat[j])*df_market17.Down_10[i]
-			elseif df_market17.DK1[i]==df_market17.Down_10[i]!=df_market17.Up_10[i]
-				revenue_balancing_new[i]=(df_forecast.meas[j]-new_strat[j])*df_market17.Up_10[i]
-			elseif df_market17.DK1[i]!=df_market17.Down_10[i] && df_market17.DK1[i]!=df_market17.Up_10[i]
-				revenue_balancing_new[i]=(df_forecast.meas[j]-new_strat[j])*df_market17.Down_10[i]-(new_strat[j]-df_forecast.meas[j])*df_market17.Up_10[i]
-			end
+# Initialize increase variable and empty arrays
+increase = 1.01
+revenue_dayahead_det2 = zeros(length(dt_17))
+revenue_balancing_det2 = zeros(length(dt_17))
+
+# Calculate
+for i in 1:length(dt_17)
+	if idx_match[i] != 0
+		production = df_forecast.meas[idx_match[i]]
+		forecast = df_forecast.fore[idx_match[i]] * increase
+		λ_s = df_market17.DK1[i]
+		λ_down = df_market17.Down_10[i]
+		λ_up = df_market17.Up_10[i]
+		revenue_dayahead_det2[i] = forecast * λ_s
+		if production > forecast
+			revenue_balancing_det2[i] = (production - forecast) * λ_down
+		elseif production < forecast
+			revenue_balancing_det2[i] = -(forecast - production) * λ_up
 		end
 	end
 end
-revenue_det_new=sum(revenue_dayahead_new)+sum(revenue_balancing_new)
 
-# Performance ratio
+# Revenue total and performance ratio
+revenue_deterministic_total2 = sum(revenue_dayahead_det2) + sum(revenue_balancing_det2)
+γ_deterministic2 = revenue_deterministic_total2 / revenue_optimal_total * 100
 
-
-γ_new = revenue_det_new/rev_dot*100
 
 ## Probabilistic
 
