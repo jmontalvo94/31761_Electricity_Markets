@@ -331,15 +331,17 @@ histogram(state, xticks=(1:3, ["Down-regulation" "Up-regulation" "Balance"]))
 ## Deterministic
 
 # Baseline
-I = collect(1:length(dt_17))
-J = 1:length(df_forecast.dato)
+
+# Initialize empty arrays
 revenue_dayahead = Array{Float64,1}(undef,length(dt_17))
 revenue_optimal = Array{Float64,1}(undef,length(dt_17))
 revenue_balancing = Array{Float64,1}(undef,length(dt_17))
-for j in J
+
+# Calculate
+for j in 1:length(df_forecast.dato)
 	production = df_forecast.meas[j]
 	forecast = df_forecast.fore[j]
-	for i in I
+	for i in 1:length(dt_17)
 		λ_s = df_market17.DK1[i]
 		λ_down = df_market17.Down_10[i]
 		λ_up = df_market17.Up_10[i]
@@ -351,7 +353,7 @@ for j in J
 			elseif production < forecast
 				revenue_balancing[i] = -(forecast - production) * λ_up
 			else
-				revenue_balancing[i] = production * λ_s
+				revenue_balancing[i] = 0
 			end
 		end
 	end
