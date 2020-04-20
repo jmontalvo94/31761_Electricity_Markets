@@ -332,10 +332,11 @@ histogram(state, xticks=(1:3, ["Down-regulation" "Up-regulation" "Balance"]))
 
 # Baseline
 I = collect(1:length(dt_17))
-revenue_dayahead = zeros(length(dt_17))
-revenue_best = zeros(length(dt_17))
-revenue_balancing = zeros(length(dt_17))
-for j in 1:length(df_forecast.dato)
+J = 1:length(df_forecast.dato)
+revenue_dayahead = Array{Float64,1}(undef,length(dt_17))
+revenue_optimal = Array{Float64,1}(undef,length(dt_17))
+revenue_balancing = Array{Float64,1}(undef,length(dt_17))
+for j in J
 	production = df_forecast.meas[j]
 	forecast = df_forecast.fore[j]
 	for i in I
@@ -344,7 +345,7 @@ for j in 1:length(df_forecast.dato)
 		λ_up = df_market17.Up_10[i]
 		if dt_17[i] == df_forecast.dato[j] && hour(df_forecast.dati[j]) == 11
 			revenue_dayahead[i] = forecast * λ_s
-			revenue_best[i] = production * λ_s
+			revenue_optimal[i] = production * λ_s
 			if production > forecast
 				revenue_balancing[i] = (production - forecast) * λ_down
 			elseif production < forecast
@@ -355,11 +356,11 @@ for j in 1:length(df_forecast.dato)
 		end
 	end
 end
-revenue_det = sum(revenue_dayahead) + sum(revenue_balancing)
-rev_dot = sum(revenue_best) #offering exactly as generated
-γ_norm = revenue_det/rev_dot*100
-#plot(1:24, df_forecast.fore[1:24],label = "forecast")
-#plot!(1:24, df_forecast.meas[1:24],label = "real")
+
+# Calculate total revenue and performance ratio
+revenue_deterministic = sum(revenue_dayahead) + sum(revenue_balancing)
+revenue_optimal = sum(revenue_optimal) #offering exactly as generated
+γ_norm = revenue_deterministic/revenue_optimal*100
 
 
 # Baseline plus 5% increase
