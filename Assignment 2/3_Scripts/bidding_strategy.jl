@@ -4,10 +4,12 @@ using CSV
 using DataFrames
 using DataFramesMeta
 using Dates
-using DelimitedFiles
 using HTTP
+using Interpolations
+using LaTeXStrings
 using Plots
 using Statistics
+
 
 ## Define functions
 
@@ -137,15 +139,26 @@ function count_hours(dfs::Array{DataFrame,1})
 	return df_counts
 end
 
-function create_bid(df::DataFrame, arr::Vector{Float64})
+function create_bid(series::Array{Int64,1}, arr::Vector{Float64})
 	bid = []
 	j = 1
-	for i in 1:24:size(df, 1)
-		bid = vcat(bid, repeat(df.State[i:i+23], Int(arr[j])))
+	for i in 1:24:size(series, 1)
+		bid = vcat(bid, repeat(series[i:i+23], Int(arr[j])))
 		j += 1
 	end
 	return bid
 end
+
+function create_bid(series::Array{Float64,1}, arr::Vector{Float64})
+	bid = []
+	j = 1
+	for i in 1:24:size(series, 1)
+		bid = vcat(bid, repeat(series[i:i+23], Int(arr[j])))
+		j += 1
+	end
+	return bid
+end
+
 
 ## Data loading and cleaning
 
@@ -206,11 +219,11 @@ dt_16 = collect(DateTime(2016,1,1,0,0,0):Hour(1):DateTime(2016,12,31,23,0,0))
 dt_17 = collect(DateTime(2017,1,1,0,0,0):Hour(1):DateTime(2017,12,31,23,0,0))
 
 # Sanity-check
-dt_16 == df_market16.Datetime
-dt_17 == df_market17.Datetime
+dt_16 == df_market16.Datetime # ok
+dt_17 == df_market17.Datetime # ok
 # unique dates on dato when year is 2017
 forecast_dato = unique(filter(row -> year(row[:dato]) == 2017, df_forecast).dato)
-missing_dato = setdiff(dt_17, forecast_dato)
+missing_dato = setdiff(dt_17, forecast_dato) # missing forecast dates
 
 
 ## Insights from 2016
@@ -222,11 +235,46 @@ price_profile = @linq df_market16 |>
 	[:Month, :Hours],
 	DK1_mean = mean(:DK1), Up_10_mean = mean(:Up_10), Down_10_mean = mean(:Down_10)
 )
-# Plot monthly hourly price profile (monthly average per hour)
+# Monthly hourly price profile (monthly average per hour)
 plot(
 	#DateTime.(Date.(2016, mhourly_profile.Month), Time.(mhourly_profile.Hours.-1)),
 	[price_profile.Up_10_mean, price_profile.DK1_mean, price_profile.Down_10_mean],
 	label = ["Up-regulation" "Spot" "Down-regulation"],
+	xlabel = "Hour",
+	ylabel = "EUR/MWh",
+)
+
+# Yearly-hourly marginal profile from 2016 data
+marginal_profile_yearly = @linq df_market16 |>
+	transform(π_plus = :DK1 - :Down_10) |>
+	transform(π_minus = :Up_10 - :DK1) |>
+	by(
+	[:Hours],
+	π_plus_mean = mean(:π_plus), π_minus_mean = mean(:π_minus)
+)
+# Plot monthly hourly marginal price profile (monthly average per hour)
+plot(
+	#DateTime.(Date.(2016, mhourly_profile.Month), Time.(mhourly_profile.Hours.-1)),
+	[marginal_profile_yearly.π_plus_mean, marginal_profile_yearly.π_minus_mean],
+	label = [L"\pi^{+}" L"\pi^{-}"],
+	xlabel = "Hour",
+	ylabel = "EUR/MWh",
+)
+
+# Hourly profile per month from 2016 market data
+marginal_profile = @linq df_market16 |>
+	transform(Month = month.(:Datetime)) |>
+	transform(π_plus = :DK1 - :Down_10) |>
+	transform(π_minus = :Up_10 - :DK1) |>
+	by(
+	[:Month, :Hours],
+	π_plus_mean = mean(:π_plus), π_minus_mean = mean(:π_minus)
+)
+# Plot monthly hourly marginal price profile (monthly average per hour)
+plot(
+	#DateTime.(Date.(2016, mhourly_profile.Month), Time.(mhourly_profile.Hours.-1)),
+	[marginal_profile.π_plus_mean, marginal_profile.π_minus_mean],
+	label = [L"\pi^{+}" L"\pi^{-}"],
 	xlabel = "Hour",
 	ylabel = "EUR/MWh",
 )
@@ -283,7 +331,7 @@ plot(
 	ylabel = "Occurences",
 )
 
-# Example of November when there's a lot of up-regulation need
+# Example of January and November
 df_january16 = filter(row -> row[:Month] == 1, df_insight16)
 df_november16 = filter(row -> row[:Month] == 11, df_insight16)
 plot(
@@ -355,6 +403,7 @@ end
 missing_idx = findall(x-> x == 0, idx_match) #52 missing dates
 missing_date = dt_17[missing_idx]
 
+
 ## Optimal
 
 # Initialize empty arrays
@@ -363,53 +412,57 @@ revenue_optimal = zeros(length(dt_17))
 # Calculate
 for i in 1:length(dt_17)
 	if idx_match[i] != 0
-		production = df_forecast.meas[idx_match[i]]
+		production = df_forecast.meas[idx_match[i]] / 1000
 		λ_s = df_market17.DK1[i]
 		revenue_optimal[i] = production * λ_s
 	end
 end
 
 # Total revenue
-revenue_optimal_total = sum(revenue_optimal) # Offering exactly as generated
+revenue_optimal_total = sum(revenue_optimal) # probabilistic_biding exactly as generated
+γ_optimal = revenue_optimal_total / revenue_optimal_total * 100
+
 
 ## Base
 
 # Initialize bid array
 month_hours = [count(i-> i == j, month.(dt_17)) for j in 1:12]
 month_days = month_hours/24
-
-base_bid = create_bid(df_insight16, month_days)
+base_bid = create_bid(df_insight16.State, month_days)
 
 # Initialize empty arrays
-revenue_dayahead_base = zeros(length(dt_17))
-revenue_balancing_base = zeros(length(dt_17))
-full_capacity = 160000 # [kW]
-bid_capacity = full_capacity * 0.5 # [kW]
+revenue_base_dayahead = zeros(length(dt_17))
+revenue_base_balancing = zeros(length(dt_17))
+full_capacity = 160 # [MW]
+half_capacity = full_capacity * 0.5 # [MW]
 
 # Calculate
 for i in 1:length(dt_17)
 	if idx_match[i] != 0
-		if base_bid[i] == 1 || base_bid[i] == 3
+		if base_bid[i] == 1 || base_bid[i] == 3 # if in balance or in down-regulation state
 			forecast = full_capacity
-		else
-			forecast = bid_capacity
+		else # if in up-regulation
+			forecast = half_capacity
 		end
-		production = df_forecast.meas[idx_match[i]]
+		production = df_forecast.meas[idx_match[i]] / 1000
 		λ_s = df_market17.DK1[i]
 		λ_down = df_market17.Down_10[i]
 		λ_up = df_market17.Up_10[i]
-		revenue_dayahead_base[i] = forecast * λ_s
+		revenue_base_dayahead[i] = forecast * λ_s
 		if production > forecast
-			revenue_balancing_base[i] = (production - forecast) * λ_down
+			revenue_base_balancing[i] = (production - forecast) * λ_down
 		elseif production < forecast
-			revenue_balancing_base[i] = -(forecast - production) * λ_up
+			revenue_base_balancing[i] = -(forecast - production) * λ_up
 		end
 	end
 end
 
 # Total revenue and performance ratio
-revenue_base_total = sum(revenue_dayahead_base) + sum(revenue_balancing_base)
-γ_deterministic = revenue_base_total / revenue_optimal_total * 100
+revenue_base = revenue_base_dayahead + revenue_base_balancing
+revenue_base_dayahead_total = sum(revenue_base_dayahead)
+revenue_base_balancing_total = sum(revenue_base_balancing)
+revenue_base_total = revenue_base_dayahead_total + revenue_base_balancing_total
+γ_base = revenue_base_total / revenue_optimal_total * 100
 
 
 ## Deterministic
@@ -417,135 +470,138 @@ revenue_base_total = sum(revenue_dayahead_base) + sum(revenue_balancing_base)
 # Baseline
 
 # Initialize empty arrays
-revenue_dayahead_det = zeros(length(dt_17))
-revenue_balancing_det = zeros(length(dt_17))
+revenue_det_dayahead = zeros(length(dt_17))
+revenue_det_balancing = zeros(length(dt_17))
 
 # Calculate
 for i in 1:length(dt_17)
 	if idx_match[i] != 0
-		production = df_forecast.meas[idx_match[i]]
-		forecast = df_forecast.fore[idx_match[i]]
+		production = df_forecast.meas[idx_match[i]] / 1000
+		forecast = df_forecast.fore[idx_match[i]] / 1000
 		λ_s = df_market17.DK1[i]
 		λ_down = df_market17.Down_10[i]
 		λ_up = df_market17.Up_10[i]
-		revenue_dayahead_det[i] = forecast * λ_s
+		revenue_det_dayahead[i] = forecast * λ_s
 		if production > forecast
-			revenue_balancing_det[i] = (production - forecast) * λ_down
+			revenue_det_balancing[i] = (production - forecast) * λ_down
 		elseif production < forecast
-			revenue_balancing_det[i] = -(forecast - production) * λ_up
+			revenue_det_balancing[i] = -(forecast - production) * λ_up
 		end
 	end
 end
 
 # Total revenue and performance ratio
-revenue_deterministic_total = sum(revenue_dayahead_det) + sum(revenue_balancing_det)
-γ_deterministic = revenue_deterministic_total / revenue_optimal_total * 100
+revenue_det = revenue_det_dayahead + revenue_det_balancing
+revenue_det_dayahead_total = sum(revenue_det_dayahead)
+revenue_det_balancing_total = sum(revenue_det_balancing)
+revenue_det_total = revenue_det_dayahead_total + revenue_det_balancing_total
+γ_det= revenue_det_total / revenue_optimal_total * 100
 
 
-# Baseline plus 5% increase
+# Baseline plus 1% increase
 
 # Initialize increase variable and empty arrays
 increase = 1.01
-revenue_dayahead_det2 = zeros(length(dt_17))
-revenue_balancing_det2 = zeros(length(dt_17))
+revenue_det2_dayahead = zeros(length(dt_17))
+revenue_det2_balancing = zeros(length(dt_17))
 
 # Calculate
 for i in 1:length(dt_17)
 	if idx_match[i] != 0
-		production = df_forecast.meas[idx_match[i]]
-		forecast = df_forecast.fore[idx_match[i]] * increase
+		production = df_forecast.meas[idx_match[i]] / 1000
+		forecast = (df_forecast.fore[idx_match[i]] / 1000) * increase
 		λ_s = df_market17.DK1[i]
 		λ_down = df_market17.Down_10[i]
 		λ_up = df_market17.Up_10[i]
-		revenue_dayahead_det2[i] = forecast * λ_s
+		revenue_det2_dayahead[i] = forecast * λ_s
 		if production > forecast
-			revenue_balancing_det2[i] = (production - forecast) * λ_down
+			revenue_det2_balancing[i] = (production - forecast) * λ_down
 		elseif production < forecast
-			revenue_balancing_det2[i] = -(forecast - production) * λ_up
+			revenue_det2_balancing[i] = -(forecast - production) * λ_up
 		end
 	end
 end
 
 # Revenue total and performance ratio
-revenue_deterministic_total2 = sum(revenue_dayahead_det2) + sum(revenue_balancing_det2)
-γ_deterministic2 = revenue_deterministic_total2 / revenue_optimal_total * 100
+revenue_det2 = revenue_det2_dayahead + revenue_det2_balancing
+revenue_det2_dayahead_total = sum(revenue_det2_dayahead)
+revenue_det2_balancing_total = sum(revenue_det2_balancing)
+revenue_det2_total = revenue_det2_dayahead_total + revenue_det2_balancing_total
+γ_det2 = revenue_det2_total / revenue_optimal_total * 100
 
 
 ## Probabilistic
 
-# Forecast descriptive statistics
-describe(df_forecast, :mean, :std, :min, :median, :max, cols=Not([:dato, :dati, :hors]))
+# Initialize empty arrays
+revenue_prob_balancing = zeros(length(dt_17))
+revenue_prob_dayahead = zeros(length(dt_17))
+prob_bid = zeros(length(dt_17))
 
-# Remove 29-2-2016
-df_market16_filtered = filter(row -> row[:Date] != Date(2016,2,29), df_market16)
+# Create average marginal prices profiles per hour per month
+π_plus = create_bid(marginal_profile.π_plus_mean, month_days)
+π_minus = create_bid(marginal_profile.π_minus_mean, month_days)
+α = π_plus./(π_plus + π_minus)
 
-# Find optimum quantile for each day
-π_plus = df_market16_filtered.DK1 - df_market16_filtered.Down_10
-π_minus = df_market16_filtered.Up_10 - df_market16_filtered.DK1
-opt_q = π_plus./(π_plus + π_minus)
+# Example plot for first hour
+plot([df_forecast[13, col] for col in 6:24], 0.05:0.05:0.95, label="Quantiles")
 
-# Find best offer
-offer = zeros(size(df_market16_filtered.DK1))
-for i in I
-	if opt_q[i] <= 1 && opt_q[i] > 0.9
-		offer[i] = df_forecast.q95[i]
-	elseif opt_q[i] <= 0.9 && opt_q[i] > 0.85
-		offer[i] = df_forecast.q90[i]
-	elseif opt_q[i] <= 0.85 && opt_q[i] > 0.8
-		offer[i] = df_forecast.q85[i]
-	elseif opt_q[i] <= 0.8 && opt_q[i] > 0.75
-		offer[i] = df_forecast.q80[i]
-	elseif opt_q[i] <= 0.75 && opt_q[i] > 0.7
-		offer[i] = df_forecast.q75[i]
-	elseif opt_q[i] <= 0.7 && opt_q[i] > 0.65
-		offer[i] = df_forecast.q70[i]
-	elseif opt_q[i] <= 0.65 && opt_q[i] > 0.6
-		offer[i] = df_forecast.q65[i]
-	elseif opt_q[i] <= 0.6 && opt_q[i] > 0.55
-		offer[i] = df_forecast.q60[i]
-	elseif opt_q[i] <= 0.55 && opt_q[i] > 0.5
-		offer[i] = df_forecast.q55[i]
-	elseif opt_q[i] <= 0.5 && opt_q[i] > 0.45
-		offer[i] = df_forecast.q50[i]
-	elseif opt_q[i] <= 0.45 && opt_q[i] > 0.4
-		offer[i] = df_forecast.q45[i]
-	elseif opt_q[i] <= 0.4 && opt_q[i] > 0.35
-		offer[i] = df_forecast.q40[i]
-	elseif opt_q[i] <= 0.35 && opt_q[i] > 0.3
-		offer[i] = df_forecast.q35[i]
-	elseif opt_q[i] <= 0.3 && opt_q[i] > 0.25
-		offer[i] = df_forecast.q30[i]
-	elseif opt_q[i] <= 0.25 && opt_q[i] > 0.2
-		offer[i] = df_forecast.q25[i]
-	elseif opt_q[i] <= 0.2 && opt_q[i] > 0.15
-		offer[i] = df_forecast.q20[i]
-	elseif opt_q[i] <= 0.15 && opt_q[i] > 0.1
-		offer[i] = df_forecast.q15[i]
-	elseif opt_q[i] <= 0.1 && opt_q[i] > 0.05
-		offer[i] = df_forecast.q10[i]
-	elseif opt_q[i] <= 0.05 || opt_q[i] == NaN
-		offer[i] = df_forecast.q5[i]
-	end
-end
-dt_16_filtered = [collect(DateTime(2016,1,1,0,0,0):Hour(1):DateTime(2016,2,28,23,0,0)); collect(DateTime(2016,3,1,0,0,0):Hour(1):DateTime(2016,12,31,23,0,0))]
-prob_dayahead = zeros(length(offer))
-prob_balancing = zeros(length(offer))
-for j in 1:length(df_forecast.dato)
-	for i in I
-		if dt_16_filtered[i]==df_forecast.dato[j] && hour(df_forecast.dati[j])==11
-			prob_dayahead[i] = offer[i]*df_market17.DK1[i]
-			if df_market17.DK1[i]==df_market17.Up_10[i]==df_market17.Down_10[i]
-				prob_balancing[i]=(df_forecast.meas[j]-offer[i])*df_market17.DK1[i]
-			elseif df_market17.DK1[i]==df_market17.Up_10[i]!=df_market17.Down_10[i]
-				prob_balancing[i]=(df_forecast.meas[j]-offer[i])*df_market17.Down_10[i]
-			elseif df_market17.DK1[i]==df_market17.Down_10[i]!=df_market17.Up_10[i]
-				prob_balancing[i]=(df_forecast.meas[j]-offer[i])*df_market17.Up_10[i]
-			elseif df_market17.DK1[i]!=df_market17.Down_10[i] && df_market17.DK1[i]!=df_market17.Up_10[i]
-				prob_balancing[i]=(df_forecast.meas[j]-offer[i])*df_market17.Down_10[i]-(offer[i]-df_forecast.meas[j])*df_market17.Up_10[i]
-			end
+# Find bid at optimal quantile
+for i in 1:length(dt_17)
+	if idx_match[i] != 0
+		quants = [df_forecast[idx_match[i], col] for col in 6:24]
+		itp = interpolate(quants, BSpline(Linear()))
+		sitp = scale(itp, 0.05:0.05:0.95)
+		if α[i] > 0.95
+			prob_bid[i] = sitp(0.95)
+		elseif α[i] < 0.05
+			prob_bid[i] = sitp(0.05)
+		else
+			prob_bid[i] = sitp(α[i])
 		end
 	end
 end
-prob_tot = sum(prob_dayahead)+sum(prob_balancing)
 
-γ_prob = prob_tot/rev_dot*100
+# Calculate
+for i in 1:length(dt_17)
+	if idx_match[i] != 0
+		production = df_forecast.meas[idx_match[i]] / 1000
+		forecast = prob_bid[i] / 1000
+		λ_s = df_market17.DK1[i]
+		λ_down = df_market17.Down_10[i]
+		λ_up = df_market17.Up_10[i]
+		revenue_prob_dayahead[i] = forecast * λ_s
+		if production > forecast
+			revenue_prob_balancing[i] = (production - forecast) * λ_down
+		elseif production < forecast
+			revenue_prob_balancing[i] = -(forecast - production) * λ_up
+		end
+	end
+end
+
+# Revenue total and performance ratio
+revenue_prob = revenue_prob_dayahead + revenue_prob_balancing
+revenue_prob_dayahead_total = sum(revenue_prob_dayahead)
+revenue_prob_balancing_total = sum(revenue_prob_balancing)
+revenue_prob_total = revenue_prob_dayahead_total + revenue_prob_balancing_total
+γ_prob = revenue_prob_total / revenue_optimal_total * 100
+
+
+## Final data viz
+
+revenue_optimal_acc = accumulate(+, revenue_optimal)
+revenue_base_acc = accumulate(+, revenue_base)
+revenue_det_acc = accumulate(+, revenue_det)
+revenue_det2_acc = accumulate(+, revenue_det2)
+revenue_prob_acc = accumulate(+, revenue_prob)
+
+revenue = [revenue_optimal, revenue_base, revenue_det, revenue_det2, revenue_prob]
+revenue_acc = [revenue_optimal_acc, revenue_base_acc, revenue_det_acc, revenue_det2_acc, revenue_prob_acc]
+
+plot(
+	dt_17,
+	revenue_acc,
+	labels = ["Optimal" "Base" "Deterministic" "Deterministic II" "Probabilistic"],
+	legend = :topleft,
+	xlabel = "Date",
+	ylabel = "EUR"
+)
