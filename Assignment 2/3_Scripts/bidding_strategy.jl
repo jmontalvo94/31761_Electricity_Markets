@@ -594,6 +594,7 @@ revenue_det_acc = accumulate(+, revenue_det)
 revenue_det2_acc = accumulate(+, revenue_det2)
 revenue_prob_acc = accumulate(+, revenue_prob)
 
+γ = Dict("γ_base" => γ_base, "γ_det" => γ_det, "γ_det2" => γ_det2, "γ_prob" => γ_prob)
 revenue = [revenue_optimal, revenue_base, revenue_det, revenue_det2, revenue_prob]
 revenue_acc = [revenue_optimal_acc, revenue_base_acc, revenue_det_acc, revenue_det2_acc, revenue_prob_acc]
 
