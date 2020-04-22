@@ -242,7 +242,14 @@ plot(
 	label = ["Up-regulation" "Spot" "Down-regulation"],
 	xlabel = "Hour",
 	ylabel = "EUR/MWh",
+	legend = :outertopright,
+	size = (1200, 300),
+	xticks = (
+	1:24:288,
+	["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]),
+	dpi = 300,
 )
+savefig("insight.png")
 
 # Yearly-hourly marginal profile from 2016 data
 marginal_profile_yearly = @linq df_market16 |>
@@ -647,3 +654,4 @@ plot(
 	ylabel = "EUR",
 	yformatter = :auto,
 )
+savefig("revenues.png")
