@@ -9,6 +9,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from pycaret.regression import *
 import seaborn as sns
 from windrose import WindroseAxes
 
@@ -74,3 +75,8 @@ train.plot.scatter('ws_100', 'POWER', c='darkblue')
 
 #sns.pairplot(train)
 sns.distplot(train['POWER'])
+
+#%% Testing PyCaret
+
+reg1 = setup(data = train, target = 'POWER', session_id=123)
+compare_models()
