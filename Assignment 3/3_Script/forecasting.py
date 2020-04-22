@@ -9,6 +9,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from windrose import WindroseAxes
 
 #%% Functions
@@ -27,31 +28,28 @@ def uv_to_wd(u, v, convention='from'):
     return wind_direction
 
 def uv_to_wswd(u, v, convention='from'):
-    wind_speed = np.sqrt(np.square(u) + np.square(v))
-    if convention == 'to':
-        wind_direction = 180/math.pi * np.arctan2(u, v)
-    elif convention == 'from':
-        wind_direction = 180 + 180/math.pi * np.arctan2(u, v)
-    else:
-        raise ValueError('Invalid convention: use "from" or "to".')
+    wind_speed = uv_to_ws(u, v)
+    wind_direction = uv_to_wd(u, v, convention)
     return wind_speed, wind_direction
 
-def plot_windrose(wd, ws, convention='to'):
+def plot_windrose(wd, ws):
     ax = WindroseAxes.from_ax()
     ax.bar(wd, ws, normed=True, opening=1)
     ax.set_legend()
 
+
 #%% Imports and variable handling
 
+# File namesnames
+files = ['TrainData1.csv', 'WeatherForecastInput1.csv']
+
 # Import data
-train = pd.read_csv('TrainData1.csv', index_col=0)
-weather = pd.read_csv('WeatherForecastInput1.csv', index_col=0)
+train = pd.read_csv(files[0], index_col=0, parse_dates=True)
+weather = pd.read_csv(files[1], index_col=0, parse_dates=True)
 
-# Count nans
+# Count nans and drop rows full of nan
 train.isna().sum()
-
-# Drop rows full of nan (only first row)
-train.dropna(how='all', inplace=True)
+train.dropna(how='all', inplace=True) # only first row
 
 # Convert wind components to speed and direction
 train['ws_10'], train['wd_10'] = uv_to_wswd(train['U10'], train['V10'])
@@ -62,7 +60,17 @@ weather['ws_10'], weather['wd_10'] = uv_to_wswd(weather['U10'], weather['V10'])
 train.drop(columns=['U10', 'V10', 'U100', 'V100'], inplace=True)
 weather.drop(columns=['U10', 'V10', 'U100', 'V100'], inplace=True)
 
-#%% Descriptive statistics
+
+#%% Descriptive statistics and data visualization
+
+plt.plot(train['POWER'])
 
 plot_windrose(train['wd_10'], train['ws_10'])
 plot_windrose(train['wd_100'], train['ws_100'])
+
+train['POWER'].plot.hist(bins=50)
+train.plot.scatter('ws_10', 'POWER', c='darkred')
+train.plot.scatter('ws_100', 'POWER', c='darkblue')
+
+#sns.pairplot(train)
+sns.distplot(train['POWER'])
